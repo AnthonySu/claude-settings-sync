@@ -17,133 +17,130 @@ Device A (MacBook)              Device B (iMac)
 └─────────────────────────────────────────┘
 ```
 
-## Features
+---
 
-- Sync settings, CLAUDE.md, skills, agents, and commands
-- Private GitHub Gist storage (only you can access)
-- Automatic version history via Gist revisions
-- Local backups before every sync operation
-- Optional auto-sync on session start
+## For LLM
 
-## Quick Start
+> **One-liner for Claude to install this plugin:**
+>
+> ```
+> Clone https://github.com/AnthonySu/claude-settings-sync to ~/.claude/plugins/claude-settings-sync, make scripts executable, then guide me through GitHub token setup and run /sync:setup.
+> ```
 
-### 1. Install the Plugin
+---
 
-```bash
-# Option A: Clone from GitHub
-git clone https://github.com/AnthonySu/claude-settings-sync.git ~/.claude/plugins/claude-settings-sync
+## For Human
 
-# Option B: Add as plugin directory
-claude --plugin-dir /path/to/claude-settings-sync
-```
+### Prerequisites
 
-### 2. Create GitHub Token
+Before installing, you need a **GitHub Personal Access Token** with `gist` scope:
 
 1. Go to https://github.com/settings/tokens/new
-2. Name: `Claude Settings Sync`
-3. Expiration: Choose based on preference
-4. Scopes: Select **only** `gist` (Create gists)
-5. Click "Generate token" and copy it
+2. **Note**: Enter `Claude Settings Sync`
+3. **Expiration**: Choose based on preference (recommend 90 days or No expiration)
+4. **Scopes**: Check **only** `gist` ✅
+5. Click **Generate token**
+6. **Copy the token** (starts with `ghp_`) - you won't see it again!
 
-### 3. Run Setup
+> ⚠️ Keep this token safe. It allows access to your Gists.
 
-```
-/sync:setup
-```
+---
 
-Enter your GitHub token when prompted. The plugin will:
-- Validate your token
-- Create a new private Gist (or find existing one)
-- Save configuration locally
+### Installation
 
-### 4. Push Your Settings
+#### Option A: Let Claude Install It
+
+Just tell Claude:
 
 ```
-/sync:push
+Install the claude-settings-sync plugin from https://github.com/AnthonySu/claude-settings-sync
 ```
 
-Done! Your settings are now in the cloud.
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `/sync:setup` | Initial configuration (GitHub token + Gist) |
-| `/sync:push` | Upload local settings to Gist |
-| `/sync:pull` | Download settings from Gist to local |
-| `/sync:status` | Show configuration and sync status |
-
-## Setting Up a New Device
-
-On your new device:
+#### Option B: Manual Installation
 
 ```bash
 # 1. Clone the plugin
 git clone https://github.com/AnthonySu/claude-settings-sync.git ~/.claude/plugins/claude-settings-sync
 
-# 2. Start Claude with the plugin
+# 2. Make scripts executable
+chmod +x ~/.claude/plugins/claude-settings-sync/scripts/*.sh
+
+# 3. Start Claude with the plugin
 claude --plugin-dir ~/.claude/plugins/claude-settings-sync
-
-# 3. Run setup with the SAME GitHub token
-/sync:setup
-
-# 4. Pull your settings
-/sync:pull
-
-# 5. Restart Claude Code for changes to take effect
 ```
 
-## What Gets Synced
+---
 
-| Item | Location | Synced by Default |
-|------|----------|-------------------|
+### Setup
+
+After installation, run:
+
+```
+/sync:setup
+```
+
+You'll be prompted to:
+1. Enter your GitHub token (the `ghp_...` token you created)
+2. Create a new Gist or connect to existing one
+
+Then push your current settings:
+
+```
+/sync:push
+```
+
+Done! Your settings are now synced to the cloud.
+
+---
+
+### Setting Up a New Device
+
+```bash
+# 1. Clone the plugin
+git clone https://github.com/AnthonySu/claude-settings-sync.git ~/.claude/plugins/claude-settings-sync
+
+# 2. Make scripts executable
+chmod +x ~/.claude/plugins/claude-settings-sync/scripts/*.sh
+
+# 3. Start Claude with the plugin
+claude --plugin-dir ~/.claude/plugins/claude-settings-sync
+
+# 4. In Claude, run setup with the SAME GitHub token
+/sync:setup
+
+# 5. Pull your settings
+/sync:pull
+
+# 6. Restart Claude for changes to take effect
+```
+
+---
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `/sync:setup` | Configure GitHub token and create/link Gist |
+| `/sync:push` | Upload local settings to Gist |
+| `/sync:pull` | Download settings from Gist to local |
+| `/sync:status` | Show configuration and sync status |
+
+---
+
+### What Gets Synced
+
+| Item | Location | Synced |
+|------|----------|--------|
 | Settings | `~/.claude/settings.json` | ✅ Yes |
 | User Instructions | `~/.claude/CLAUDE.md` | ✅ Yes |
 | Skills | `~/.claude/skills/` | ✅ Yes |
 | Agents | `~/.claude/agents/` | ✅ Yes |
 | Commands | `~/.claude/commands/` | ✅ Yes |
-| MCP Servers | `~/.claude.json` | ❌ No (sensitive) |
+| MCP Servers | `~/.claude.json` | ❌ No (may contain secrets) |
 
-## Configuration
+---
 
-Config stored at `~/.claude/plugins-config/sync-config.json`:
-
-```json
-{
-  "github_token": "ghp_xxx",
-  "gist_id": "abc123...",
-  "sync_items": {
-    "settings": true,
-    "claude_md": true,
-    "skills": true,
-    "agents": true,
-    "commands": true,
-    "mcp_servers": false
-  },
-  "auto_sync": {
-    "pull_on_start": false,
-    "push_on_end": false
-  },
-  "backup": {
-    "keep_local_backups": 5
-  }
-}
-```
-
-### Enable Auto-Sync (Optional)
-
-Edit the config to enable automatic sync:
-
-```json
-{
-  "auto_sync": {
-    "pull_on_start": true,  // Auto-pull when Claude starts
-    "push_on_end": false    // Not recommended (may overwrite)
-  }
-}
-```
-
-## Permanent Installation
+### Permanent Installation
 
 To always load this plugin, add to `~/.claude/settings.json`:
 
@@ -155,61 +152,74 @@ To always load this plugin, add to `~/.claude/settings.json`:
 }
 ```
 
-Or create a marketplace for your plugins.
+---
 
-## Backups
+### Configuration
 
-Local backups are automatically created before every push/pull operation:
+Config stored at `~/.claude/plugins-config/sync-config.json`:
+
+```json
+{
+  "github_token": "ghp_xxx",
+  "gist_id": "abc123...",
+  "auto_sync": {
+    "pull_on_start": false,
+    "push_on_end": false
+  },
+  "backup": {
+    "keep_local_backups": 5
+  }
+}
+```
+
+#### Enable Auto-Sync (Optional)
+
+```json
+{
+  "auto_sync": {
+    "pull_on_start": true
+  }
+}
+```
+
+---
+
+### Backups
+
+Local backups are created automatically before every sync:
 
 ```
 ~/.claude/sync-backups/
 ├── backup_20250107_103045/
-│   ├── settings.json
-│   ├── CLAUDE.md
-│   ├── skills/
-│   └── metadata.json
 └── backup_20250107_112030/
-    └── ...
 ```
 
-By default, the 5 most recent backups are kept.
+---
 
-## Security Notes
+### Security
 
-- Your GitHub token is stored locally in `~/.claude/plugins-config/sync-config.json`
-- The file has `600` permissions (owner read/write only)
-- The Gist is **private** - only visible to you
-- MCP server configs are NOT synced by default (may contain API keys)
+- GitHub token stored locally with `600` permissions
+- Gist is **private** (only you can see it)
+- MCP configs excluded by default (may contain API keys)
 
-## Requirements
+---
 
-- `curl` - HTTP requests
-- `jq` - JSON processing
-- `tar` - Directory archiving
-- `base64` - Encoding
+### Troubleshooting
 
-All are typically pre-installed on macOS and most Linux distributions.
+| Problem | Solution |
+|---------|----------|
+| "Token invalid" | Generate new token at github.com/settings/tokens |
+| "Gist not found" | Run `/sync:setup` again |
+| "Permission denied" | Run `chmod +x ~/.claude/plugins/claude-settings-sync/scripts/*.sh` |
 
-## Troubleshooting
+---
 
-### "Token invalid or expired"
-Generate a new token at https://github.com/settings/tokens
+### Requirements
 
-### "Gist not found"
-Run `/sync:setup` again to reconfigure
+- `curl`, `jq`, `tar`, `base64` (pre-installed on macOS/Linux)
 
-### "Permission denied" on scripts
-```bash
-chmod +x ~/.claude/plugins/claude-settings-sync/scripts/*.sh
-```
-
-### Pull doesn't restore files
-Check that the Gist contains files: `/sync:status`
+---
 
 ## License
 
 MIT
-
-## Contributing
-
-Issues and PRs welcome at https://github.com/AnthonySu/claude-settings-sync
