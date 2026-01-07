@@ -7,7 +7,5 @@
     "url": "https://github.com/AnthonySu/claude-settings-sync"
   },
   "license": "MIT",
-  "keywords": ["sync", "backup", "settings", "gist", "cross-device"],
-  "commands": "../commands/",
-  "hooks": "../hooks/hooks.json"
+  "keywords": ["sync", "backup", "settings", "gist", "cross-device"]
 }
