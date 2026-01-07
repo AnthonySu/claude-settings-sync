@@ -8,6 +8,6 @@
   },
   "license": "MIT",
   "keywords": ["sync", "backup", "settings", "gist", "cross-device"],
-  "commands": "./commands/",
-  "hooks": "./hooks/hooks.json"
+  "commands": "../commands/",
+  "hooks": "../hooks/hooks.json"
 }
