@@ -1,0 +1,17 @@
+{
+  "description": "Auto-sync hooks for claude-settings-sync (disabled by default)",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/auto-pull.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
