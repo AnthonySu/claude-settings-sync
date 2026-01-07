@@ -4,7 +4,7 @@
   "description": "Sync Claude Code settings across devices via GitHub Gists",
   "author": {
     "name": "Claude Settings Sync",
-    "url": "https://github.com/suhaoran/claude-settings-sync"
+    "url": "https://github.com/AnthonySu/claude-settings-sync"
   },
   "license": "MIT",
   "keywords": ["sync", "backup", "settings", "gist", "cross-device"],
