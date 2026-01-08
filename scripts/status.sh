@@ -14,7 +14,7 @@ echo ""
 if ! config_exists; then
     log_error "Not configured."
     echo ""
-    echo "Run /sync:setup to configure settings sync."
+    echo "Run /claude-settings-sync:setup to configure settings sync."
     exit 1
 fi
 
@@ -217,7 +217,7 @@ echo ""
 
 # === Quick Actions ===
 echo "Quick actions:"
-echo "  /sync:push   - Upload local settings to Gist"
-echo "  /sync:pull   - Download settings from Gist"
-echo "  /sync:setup  - Reconfigure sync"
+echo "  /claude-settings-sync:push   - Upload local settings to Gist"
+echo "  /claude-settings-sync:pull   - Download settings from Gist"
+echo "  /claude-settings-sync:setup  - Reconfigure sync"
 echo ""
