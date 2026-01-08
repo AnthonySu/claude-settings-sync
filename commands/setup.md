@@ -48,4 +48,4 @@ Ask the user for their GitHub token, then:
    ```
    Set file permissions to 600.
 
-5. **Confirm success** and tell user to run `/sync:push` or `/sync:pull` next.
+5. **Confirm success** and tell user to run `/claude-settings-sync:push` or `/claude-settings-sync:pull` next.

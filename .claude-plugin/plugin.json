@@ -1,11 +1,15 @@
 {
   "name": "claude-settings-sync",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Sync Claude Code settings across devices via GitHub Gists",
   "author": {
-    "name": "Claude Settings Sync",
-    "url": "https://github.com/AnthonySu/claude-settings-sync"
+    "name": "Anthony Su",
+    "url": "https://github.com/AnthonySu"
   },
+  "repository": "https://github.com/AnthonySu/claude-settings-sync",
   "license": "MIT",
-  "keywords": ["sync", "backup", "settings", "gist", "cross-device"]
+  "keywords": ["sync", "backup", "settings", "gist", "cross-device"],
+  "commands": [
+    "./commands/"
+  ]
 }

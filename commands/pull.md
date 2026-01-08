@@ -1,28 +1,52 @@
 ---
 description: Pull Claude Code settings from GitHub Gist
-allowed-tools: Bash
+allowed-tools: Bash, Read, Write
 ---
 
 # Pull Settings
 
 Download Claude Code settings from the configured GitHub Gist to this device.
 
-## What gets synced
+## What Gets Pulled
 
 - `settings.json` -> `~/.claude/settings.json`
 - `CLAUDE.md` -> `~/.claude/CLAUDE.md`
-- `skills/` -> `~/.claude/skills/`
-- `agents/` -> `~/.claude/agents/`
-- `commands/` -> `~/.claude/commands/`
+- `commands_*.md` -> `~/.claude/commands/`
+- `skills_*` -> `~/.claude/skills/`
 
-## Execute
+## Steps
 
-Run the pull script with auto-confirmation:
+1. **Read config** from `~/.claude/plugins-config/sync-config.json` to get token and gist_id
 
-```bash
-echo "y" | ~/.claude/plugins/claude-settings-sync/scripts/pull.sh
-```
+2. **Create backup** before pulling:
+   ```bash
+   BACKUP_DIR=~/.claude/sync-backups/backup_$(date +%Y%m%d_%H%M%S)
+   mkdir -p "$BACKUP_DIR"
+   cp ~/.claude/settings.json "$BACKUP_DIR/" 2>/dev/null
+   cp ~/.claude/CLAUDE.md "$BACKUP_DIR/" 2>/dev/null
+   cp -r ~/.claude/commands "$BACKUP_DIR/" 2>/dev/null
+   ```
 
-A local backup is created before pulling. Backups are stored in `~/.claude/sync-backups/`.
+3. **Fetch gist content**:
+   ```bash
+   curl -s -H "Authorization: token <TOKEN>" "https://api.github.com/gists/<GIST_ID>" > /tmp/gist_content.json
+   ```
 
-After pulling, tell the user to restart Claude Code for changes to take effect.
+4. **Extract and write files**:
+   ```bash
+   # settings.json
+   jq -r '.files["settings.json"].content // empty' /tmp/gist_content.json > ~/.claude/settings.json.new && mv ~/.claude/settings.json.new ~/.claude/settings.json
+
+   # CLAUDE.md
+   jq -r '.files["CLAUDE.md"].content // empty' /tmp/gist_content.json > ~/.claude/CLAUDE.md.new && mv ~/.claude/CLAUDE.md.new ~/.claude/CLAUDE.md
+
+   # Commands (files named commands_*.md)
+   for key in $(jq -r '.files | keys[]' /tmp/gist_content.json | grep '^commands_'); do
+     fname="${key#commands_}"
+     jq -r --arg k "$key" '.files[$k].content' /tmp/gist_content.json > ~/.claude/commands/"$fname"
+   done
+   ```
+
+5. **Update last_sync** in config file
+
+6. **Report success** and remind user to restart Claude Code for changes to take effect
