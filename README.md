@@ -77,6 +77,7 @@ Enter your token when prompted. This creates a private Gist for your settings.
 | `/claude-settings-sync:push` | Upload local settings to Gist |
 | `/claude-settings-sync:pull` | Download settings from Gist |
 | `/claude-settings-sync` | Show sync status |
+| `/claude-settings-sync:uninstall` | Remove plugin and configuration |
 
 ### Sync to a new device
 
@@ -92,6 +93,7 @@ Enter your token when prompted. This creates a private Gist for your settings.
 | Settings | `~/.claude/settings.json` | Yes |
 | Instructions | `~/.claude/CLAUDE.md` | Yes |
 | Commands | `~/.claude/commands/` | Yes |
+| Agents | `~/.claude/agents/` | Yes |
 | Skills | `~/.claude/skills/` | Partial* |
 | MCP Servers | `~/.claude.json` | No (secrets) |
 
@@ -125,6 +127,25 @@ Config stored at `~/.claude/plugins-config/sync-config.json`:
 - Gist is private (only visible to you)
 - MCP configs excluded by default (may contain API keys)
 - Backups created before each pull: `~/.claude/sync-backups/`
+
+## Uninstall
+
+Run in Claude:
+```
+/claude-settings-sync:uninstall
+```
+
+Or run the script directly:
+```bash
+~/.claude/plugins/marketplaces/claude-settings-sync/uninstall.sh
+```
+
+This removes:
+- Plugin directory and configuration files
+- Sync config (token, gist ID)
+- Local backups
+
+Your GitHub Gist is **not** deleted (visit https://gist.github.com to remove it manually).
 
 ## Requirements
 
