@@ -77,9 +77,9 @@ else
     git clone "$REPO_URL" "$INSTALL_DIR"
 fi
 
-# Make scripts executable
+# Make all scripts executable
 log_info "Setting script permissions..."
-chmod +x "$INSTALL_DIR/scripts/"*.sh
+find "$INSTALL_DIR" -name "*.sh" -exec chmod +x {} \;
 
 # Get plugin version from plugin.json
 if [ -f "$INSTALL_DIR/.claude-plugin/plugin.json" ]; then
