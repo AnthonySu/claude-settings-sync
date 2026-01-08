@@ -1,0 +1,20 @@
+{
+  "name": "claude-settings-sync",
+  "owner": {
+    "name": "Anthony Su",
+    "email": "anthony0312@berkeley.edu"
+  },
+  "metadata": {
+    "description": "Sync Claude Code settings across devices via GitHub Gists",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "claude-settings-sync",
+      "source": "./",
+      "description": "Sync Claude Code settings across devices via GitHub Gists. Push and pull your settings, CLAUDE.md, and commands between machines.",
+      "category": "productivity",
+      "tags": ["sync", "backup", "settings", "gist", "cross-device"]
+    }
+  ]
+}

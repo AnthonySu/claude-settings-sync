@@ -12,7 +12,7 @@ Display the current sync configuration, status, and any differences between loca
 Run the status script:
 
 ```bash
-~/.claude/plugins/my-marketplace/claude-settings-sync/scripts/status.sh
+~/.claude/plugins/marketplaces/claude-settings-sync/scripts/status.sh
 ```
 
 Shows: configuration status, GitHub user, Gist ID, last sync time, local vs remote comparison, and available backups.

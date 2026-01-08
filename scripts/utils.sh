@@ -314,10 +314,11 @@ cleanup_old_backups() {
     local keep=$(get_config_value "backup.keep_local_backups")
     [ -z "$keep" ] && keep=5
 
-    # List backups sorted by date, remove old ones
+    # List backups sorted by date (oldest first), remove old ones
     local count=$(ls -1d "$BACKUP_DIR"/backup_* 2>/dev/null | wc -l | tr -d ' ')
     if [ "$count" -gt "$keep" ]; then
-        ls -1d "$BACKUP_DIR"/backup_* 2>/dev/null | head -n -"$keep" | xargs rm -rf
+        local to_delete=$((count - keep))
+        ls -1d "$BACKUP_DIR"/backup_* 2>/dev/null | head -n "$to_delete" | xargs rm -rf
     fi
 }
 
