@@ -1,5 +1,6 @@
 ---
 description: Sync Claude Code settings across devices
+allowed-tools: Bash
 ---
 
 # Claude Settings Sync
@@ -11,32 +12,24 @@ Sync your Claude Code settings across devices via GitHub Gists.
 First, check current sync status:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/status.sh
+~/.claude/plugins/claude-settings-sync/scripts/status.sh
 ```
 
 Then choose an action:
 
 ### Push (upload local settings)
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/push.sh
+~/.claude/plugins/claude-settings-sync/scripts/push.sh
 ```
 
 ### Pull (download remote settings)
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pull.sh
-```
-
-## First Time Setup
-
-If not configured yet, run setup first:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/setup.sh
+echo "y" | ~/.claude/plugins/claude-settings-sync/scripts/pull.sh
 ```
 
 ## Available Commands
 
-- `/claude-settings-sync:push` - Push local settings to Gist
-- `/claude-settings-sync:pull` - Pull settings from Gist
-- `/claude-settings-sync:status` - Show sync status
-- `/claude-settings-sync:setup` - Configure sync settings
+- `/sync:push` - Push local settings to Gist
+- `/sync:pull` - Pull settings from Gist
+- `/sync:status` - Show sync status
+- `/sync:setup` - Configure sync settings

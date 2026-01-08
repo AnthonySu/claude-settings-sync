@@ -5,9 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils.sh"
 
 echo ""
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║             Claude Settings Sync - Status                  ║"
-echo "╚════════════════════════════════════════════════════════════╝"
+echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${NC}${BOLD}             Claude Settings Sync - Status                  ${NC}${CYAN}║${NC}"
+echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
 # Check configuration

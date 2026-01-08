@@ -24,7 +24,7 @@ Device A (MacBook)              Device B (iMac)
 > **One-liner for Claude to install this plugin:**
 >
 > ```
-> Clone https://github.com/AnthonySu/claude-settings-sync to ~/.claude/plugins/claude-settings-sync, make scripts executable, then guide me through GitHub token setup and run /sync:setup.
+> Clone https://github.com/AnthonySu/claude-settings-sync to ~/.claude/plugins/claude-settings-sync, make scripts executable, then guide me through GitHub token setup and configure it (validate token, find/create gist, save config to ~/.claude/plugins-config/sync-config.json).
 > ```
 
 ---
