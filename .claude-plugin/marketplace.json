@@ -1,6 +1,10 @@
 {
   "name": "claude-settings-sync",
   "description": "Personal plugin marketplace for settings sync",
+  "owner": {
+    "name": "AnthonySu",
+    "email": "anthony0312@berkeley.edu"
+  },
   "plugins": [
     {
       "name": "claude-settings-sync",
