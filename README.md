@@ -4,9 +4,9 @@ Sync your Claude Code settings across devices using GitHub Gists.
 
 ```
 Device A (MacBook)                    Device B (iMac)
-     │                                     │
+     │                                     ▲
      │  /claude-settings-sync:push         │  /claude-settings-sync:pull
-     ▼                                     ▼
+     ▼                                     │
 ┌───────────────────────────────────────────────┐
 │            GitHub Gist (Private)              │
 │  • settings.json                              │
