@@ -1,5 +1,6 @@
 #!/bin/bash
 # pull.sh - Pull settings from GitHub Gist
+# Handles truncated files by fetching from raw_url
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils.sh"
@@ -37,19 +38,26 @@ if ! check_dependencies; then
     exit 1
 fi
 
-# Fetch gist
+# Create temp directory
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf $TEMP_DIR" EXIT
+
+# Fetch gist metadata
 log_info "Fetching settings from Gist..."
 gist_data=$(get_gist)
 
-if ! echo "$gist_data" | jq -e '.files' > /dev/null 2>&1; then
+# Save gist data to temp file to avoid parsing issues with large content
+echo "$gist_data" > "$TEMP_DIR/gist_metadata.json"
+
+if ! jq -e '.files' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
     log_error "Failed to fetch gist"
-    echo "$gist_data" | jq -r '.message // .'
+    jq -r '.message // .' "$TEMP_DIR/gist_metadata.json" 2>/dev/null || cat "$TEMP_DIR/gist_metadata.json"
     exit 1
 fi
 
 # Check what's available
 log_info "Available in Gist:"
-available_files=$(echo "$gist_data" | jq -r '.files | keys[]')
+available_files=$(jq -r '.files | keys[]' "$TEMP_DIR/gist_metadata.json")
 for f in $available_files; do
     if [[ "$f" != "manifest.json" ]]; then
         echo "  - $f"
@@ -57,7 +65,7 @@ for f in $available_files; do
 done
 
 # Check manifest
-remote_manifest=$(echo "$gist_data" | jq -r '.files["manifest.json"].content // "{}"')
+remote_manifest=$(jq -r '.files["manifest.json"].content // "{}"' "$TEMP_DIR/gist_metadata.json")
 remote_device=$(echo "$remote_manifest" | jq -r '.device // "unknown"')
 remote_time=$(echo "$remote_manifest" | jq -r '.timestamp // "unknown"')
 
@@ -103,64 +111,95 @@ mkdir -p "$CLAUDE_DIR/skills"
 mkdir -p "$CLAUDE_DIR/agents"
 mkdir -p "$CLAUDE_DIR/commands"
 
+# Helper function to get file content (handles truncated files)
+get_file_content() {
+    local filename="$1"
+    local output_file="$2"
+
+    local truncated=$(jq -r ".files[\"$filename\"].truncated // false" "$TEMP_DIR/gist_metadata.json")
+
+    if [ "$truncated" = "true" ]; then
+        # File is truncated, fetch from raw_url
+        local raw_url=$(jq -r ".files[\"$filename\"].raw_url" "$TEMP_DIR/gist_metadata.json")
+        curl -s "$raw_url" > "$output_file"
+    else
+        # File is not truncated, extract from metadata
+        jq -r ".files[\"$filename\"].content // empty" "$TEMP_DIR/gist_metadata.json" > "$output_file"
+    fi
+}
+
 # Pull files
 pulled_count=0
 
 # settings.json
-settings_content=$(echo "$gist_data" | jq -r '.files["settings.json"].content // empty')
-if [ -n "$settings_content" ]; then
-    # The content is JSON-escaped, need to unescape
-    echo "$settings_content" | jq -r '.' > "$CLAUDE_DIR/settings.json" 2>/dev/null || \
-    echo "$settings_content" > "$CLAUDE_DIR/settings.json"
-    log_success "Pulled settings.json"
-    ((pulled_count++))
+if jq -e '.files["settings.json"]' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
+    get_file_content "settings.json" "$TEMP_DIR/settings.json"
+    if [ -s "$TEMP_DIR/settings.json" ]; then
+        # Try to parse as JSON, if fails just copy as-is
+        if jq -e '.' "$TEMP_DIR/settings.json" > /dev/null 2>&1; then
+            cp "$TEMP_DIR/settings.json" "$CLAUDE_DIR/settings.json"
+        else
+            cp "$TEMP_DIR/settings.json" "$CLAUDE_DIR/settings.json"
+        fi
+        log_success "Pulled settings.json"
+        ((pulled_count++))
+    fi
 fi
 
 # CLAUDE.md
-claude_md_content=$(echo "$gist_data" | jq -r '.files["CLAUDE.md"].content // empty')
-if [ -n "$claude_md_content" ]; then
-    echo "$claude_md_content" > "$CLAUDE_DIR/CLAUDE.md"
-    log_success "Pulled CLAUDE.md"
-    ((pulled_count++))
+if jq -e '.files["CLAUDE.md"]' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
+    get_file_content "CLAUDE.md" "$TEMP_DIR/CLAUDE.md"
+    if [ -s "$TEMP_DIR/CLAUDE.md" ]; then
+        cp "$TEMP_DIR/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
+        log_success "Pulled CLAUDE.md"
+        ((pulled_count++))
+    fi
 fi
 
 # Skills directory
-skills_content=$(echo "$gist_data" | jq -r '.files["skills.tar.gz.b64"].content // empty')
-if [ -n "$skills_content" ]; then
-    # Clear existing skills
-    rm -rf "$CLAUDE_DIR/skills"
-    mkdir -p "$CLAUDE_DIR/skills"
-    if unpack_directory "$skills_content" "$CLAUDE_DIR/skills"; then
-        log_success "Pulled skills/"
-        ((pulled_count++))
-    else
-        log_warn "Failed to unpack skills/"
+if jq -e '.files["skills.tar.gz.b64"]' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
+    get_file_content "skills.tar.gz.b64" "$TEMP_DIR/skills.tar.gz.b64"
+    if [ -s "$TEMP_DIR/skills.tar.gz.b64" ]; then
+        # Clear existing skills
+        rm -rf "$CLAUDE_DIR/skills"
+        mkdir -p "$CLAUDE_DIR/skills"
+        # Decode and extract
+        if base64 -d < "$TEMP_DIR/skills.tar.gz.b64" | tar -xzf - -C "$CLAUDE_DIR" 2>/dev/null; then
+            log_success "Pulled skills/"
+            ((pulled_count++))
+        else
+            log_warn "Failed to unpack skills/"
+        fi
     fi
 fi
 
 # Agents directory
-agents_content=$(echo "$gist_data" | jq -r '.files["agents.tar.gz.b64"].content // empty')
-if [ -n "$agents_content" ]; then
-    rm -rf "$CLAUDE_DIR/agents"
-    mkdir -p "$CLAUDE_DIR/agents"
-    if unpack_directory "$agents_content" "$CLAUDE_DIR/agents"; then
-        log_success "Pulled agents/"
-        ((pulled_count++))
-    else
-        log_warn "Failed to unpack agents/"
+if jq -e '.files["agents.tar.gz.b64"]' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
+    get_file_content "agents.tar.gz.b64" "$TEMP_DIR/agents.tar.gz.b64"
+    if [ -s "$TEMP_DIR/agents.tar.gz.b64" ]; then
+        rm -rf "$CLAUDE_DIR/agents"
+        mkdir -p "$CLAUDE_DIR/agents"
+        if base64 -d < "$TEMP_DIR/agents.tar.gz.b64" | tar -xzf - -C "$CLAUDE_DIR" 2>/dev/null; then
+            log_success "Pulled agents/"
+            ((pulled_count++))
+        else
+            log_warn "Failed to unpack agents/"
+        fi
     fi
 fi
 
 # Commands directory
-commands_content=$(echo "$gist_data" | jq -r '.files["commands.tar.gz.b64"].content // empty')
-if [ -n "$commands_content" ]; then
-    rm -rf "$CLAUDE_DIR/commands"
-    mkdir -p "$CLAUDE_DIR/commands"
-    if unpack_directory "$commands_content" "$CLAUDE_DIR/commands"; then
-        log_success "Pulled commands/"
-        ((pulled_count++))
-    else
-        log_warn "Failed to unpack commands/"
+if jq -e '.files["commands.tar.gz.b64"]' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
+    get_file_content "commands.tar.gz.b64" "$TEMP_DIR/commands.tar.gz.b64"
+    if [ -s "$TEMP_DIR/commands.tar.gz.b64" ]; then
+        rm -rf "$CLAUDE_DIR/commands"
+        mkdir -p "$CLAUDE_DIR/commands"
+        if base64 -d < "$TEMP_DIR/commands.tar.gz.b64" | tar -xzf - -C "$CLAUDE_DIR" 2>/dev/null; then
+            log_success "Pulled commands/"
+            ((pulled_count++))
+        else
+            log_warn "Failed to unpack commands/"
+        fi
     fi
 fi
 

@@ -204,6 +204,29 @@ update_gist() {
     github_api "PATCH" "/gists/$gist_id" "$payload"
 }
 
+# Update gist from a file (avoids "Argument list too long" error)
+update_gist_from_file() {
+    local payload_file="$1"
+    local gist_id=$(get_config_value "gist_id")
+    local token=$(get_config_value "github_token")
+
+    if [ -z "$gist_id" ]; then
+        log_error "Gist ID not configured"
+        return 1
+    fi
+
+    if [ -z "$token" ]; then
+        log_error "GitHub token not configured"
+        return 1
+    fi
+
+    curl -s -H "Authorization: token $token" \
+        -H "Accept: application/vnd.github.v3+json" \
+        -X PATCH \
+        -d @"$payload_file" \
+        "https://api.github.com/gists/$gist_id"
+}
+
 # === File Operations ===
 
 get_file_hash() {
