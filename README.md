@@ -2,6 +2,12 @@
 
 Sync your Claude Code settings across devices using GitHub Gists.
 
+## Changelog
+
+- **v2.1.0** - Skill manifest sync (50MB+ → 9KB), version history with device tracking
+- **v2.0.0** - Compressed xz bundles, improved status display
+- **v1.0.0** - Initial release
+
 ```
 Device A (MacBook)                    Device B (iMac)
      │                                     ▲
@@ -150,21 +156,6 @@ Your GitHub Gist is **not** deleted (visit https://gist.github.com to remove it 
 
 - `curl`, `jq`, `xz` (pre-installed on macOS/Linux)
 - GitHub account
-
-## Changelog
-
-### v2.1.0 (2026-01-14)
-- **Skill manifest sync**: Skills now sync as metadata only (name, description, source), reducing bundle from 50MB+ to ~9KB. On pull, shows which skills need local installation.
-- **Version history**: Status now displays push history with device name, timestamp, bundle size, and skill count per entry.
-- **Sync history tracking**: Each push records device info in `sync-history.json` for cross-device visibility.
-
-### v2.0.0 (2026-01-12)
-- **Compressed bundles**: All settings packaged into a single xz-compressed tarball for better efficiency and larger file support.
-- **Improved status**: Shows local vs remote comparison and backup info.
-
-### v1.0.0 (2026-01-08)
-- Initial release with push/pull/status commands.
-- GitHub Gist storage with automatic backup before pull.
 
 ## License
 
