@@ -29,6 +29,21 @@ Run the push script:
 
 - `--force` - Skip confirmation prompt
 - `--dry-run` - Show what would be pushed without actually pushing
+- `--only=items` - Push only specific items (comma-separated), merging with remote
+
+### Selective Push Examples
+
+```bash
+# Push only commands directory
+~/.claude/plugins/marketplaces/claude-settings-sync/scripts/push.sh --only=commands
+
+# Push settings.json and CLAUDE.md only
+~/.claude/plugins/marketplaces/claude-settings-sync/scripts/push.sh --only=settings.json,CLAUDE.md
+```
+
+Valid items: `settings.json`, `CLAUDE.md`, `agents`, `commands`, `skills`
+
+**Note**: Selective push merges with existing remote data - other items are preserved.
 
 ## Process
 

@@ -29,6 +29,23 @@ Run the pull script:
 
 - `--force` - Skip confirmation prompt
 - `--dry-run` - Show what would be pulled without actually pulling
+- `--diff` - Preview file-level changes before pulling
+- `--only=items` - Pull only specific items (comma-separated)
+
+### Selective Pull Examples
+
+```bash
+# Pull only commands directory
+~/.claude/plugins/marketplaces/claude-settings-sync/scripts/pull.sh --only=commands
+
+# Pull settings.json and CLAUDE.md only
+~/.claude/plugins/marketplaces/claude-settings-sync/scripts/pull.sh --only=settings.json,CLAUDE.md
+
+# Preview changes before pulling
+~/.claude/plugins/marketplaces/claude-settings-sync/scripts/pull.sh --diff
+```
+
+Valid items: `settings.json`, `CLAUDE.md`, `agents`, `commands`, `skills`
 
 ## Process
 

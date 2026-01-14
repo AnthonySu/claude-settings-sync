@@ -8,10 +8,14 @@ source "$SCRIPT_DIR/utils.sh"
 # Parse arguments
 FORCE=false
 DRY_RUN=false
+SHOW_DIFF=false
+ONLY_ITEMS=()
 for arg in "$@"; do
     case $arg in
         --force) FORCE=true ;;
         --dry-run) DRY_RUN=true ;;
+        --diff) SHOW_DIFF=true ;;
+        --only=*) IFS=',' read -ra ONLY_ITEMS <<< "${arg#*=}" ;;
     esac
 done
 
@@ -41,6 +45,15 @@ fi
 # Create temp directory
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
+
+# Validate --only items if specified
+if [ ${#ONLY_ITEMS[@]} -gt 0 ]; then
+    if ! validate_only_items "${ONLY_ITEMS[@]}"; then
+        exit 1
+    fi
+    log_info "Selective pull: ${ONLY_ITEMS[*]}"
+    echo ""
+fi
 
 # Fetch gist metadata
 log_info "Fetching settings from Gist..."
@@ -82,7 +95,102 @@ echo "  Bundle size: ${bundle_size_kb}KB"
 echo "  Items: $(echo "$remote_items" | jq -r 'join(", ")')"
 echo ""
 
-# Dry run check
+# Conflict detection
+log_info "Checking for conflicts..."
+local_modified=$(get_local_modified_time)
+last_sync=$(get_config_value "last_sync")
+
+if [ -n "$local_modified" ] && [ -n "$last_sync" ]; then
+    sync_status=$(compare_sync_times "$last_sync" "$local_modified")
+    if [ "$sync_status" = "local_newer" ]; then
+        echo ""
+        log_warn "Local settings modified since last sync!"
+        echo "  Local modified: $local_modified"
+        echo "  Last sync: $last_sync"
+        echo ""
+        log_warn "You have local changes that will be overwritten."
+        if [ "$FORCE" != true ] && [ "$SHOW_DIFF" != true ]; then
+            read -p "Pull anyway? Use --diff to preview changes. (y/N): " confirm
+            if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+                log_info "Pull cancelled. Consider pushing first to save local changes."
+                exit 0
+            fi
+        fi
+    else
+        log_success "No conflicts detected"
+    fi
+fi
+
+# Diff preview mode
+if [ "$SHOW_DIFF" = true ]; then
+    echo ""
+    log_info "Previewing changes (--diff mode)..."
+    echo ""
+
+    # Download and extract to temp for comparison
+    truncated=$(jq -r '.files["settings-bundle.tar.gz.b64"].truncated // false' "$TEMP_DIR/gist_metadata.json")
+    if [ "$truncated" = "true" ]; then
+        raw_url=$(jq -r '.files["settings-bundle.tar.gz.b64"].raw_url' "$TEMP_DIR/gist_metadata.json")
+        curl -s "$raw_url" > "$TEMP_DIR/bundle.txt"
+    else
+        jq -r '.files["settings-bundle.tar.gz.b64"].content // empty' "$TEMP_DIR/gist_metadata.json" > "$TEMP_DIR/bundle.txt"
+    fi
+
+    # Extract to temp
+    mkdir -p "$TEMP_DIR/remote"
+    cat "$TEMP_DIR/bundle.txt" | base64 -d | xz -d | tar -xf - -C "$TEMP_DIR/remote" 2>/dev/null
+
+    echo "┌─ File Comparison ───────────────────────────────────────────┐"
+    for item in "${BUNDLE_ITEMS[@]}"; do
+        local_path="$CLAUDE_DIR/$item"
+        remote_path="$TEMP_DIR/remote/claude-settings/$item"
+
+        if [ -f "$local_path" ] && [ -f "$remote_path" ]; then
+            if diff -q "$local_path" "$remote_path" > /dev/null 2>&1; then
+                echo -e "│ ${GREEN}=${NC} $item (unchanged)"
+            else
+                echo -e "│ ${YELLOW}~${NC} $item (modified)"
+                # Show line count diff
+                local_lines=$(wc -l < "$local_path" | tr -d ' ')
+                remote_lines=$(wc -l < "$remote_path" | tr -d ' ')
+                echo "│     Local: $local_lines lines, Remote: $remote_lines lines"
+            fi
+        elif [ -f "$remote_path" ]; then
+            echo -e "│ ${GREEN}+${NC} $item (new from remote)"
+        elif [ -f "$local_path" ]; then
+            echo -e "│ ${RED}-${NC} $item (exists locally, not in remote)"
+        fi
+
+        # Handle directories
+        if [ -d "$local_path" ] && [ -d "$remote_path" ]; then
+            local_count=$(find "$local_path" -type f 2>/dev/null | wc -l | tr -d ' ')
+            remote_count=$(find "$remote_path" -type f 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$local_count" -eq "$remote_count" ]; then
+                echo -e "│ ${GREEN}=${NC} $item/ ($local_count files)"
+            else
+                echo -e "│ ${YELLOW}~${NC} $item/ (local: $local_count, remote: $remote_count files)"
+            fi
+        elif [ -d "$remote_path" ]; then
+            remote_count=$(find "$remote_path" -type f 2>/dev/null | wc -l | tr -d ' ')
+            echo -e "│ ${GREEN}+${NC} $item/ (new: $remote_count files)"
+        fi
+    done
+    echo "└──────────────────────────────────────────────────────────────┘"
+    echo ""
+
+    if [ "$DRY_RUN" = true ]; then
+        log_info "[DRY RUN + DIFF] No changes made."
+        exit 0
+    fi
+
+    read -p "Apply these changes? (y/N): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        log_info "Pull cancelled."
+        exit 0
+    fi
+fi
+
+# Dry run check (without diff)
 if [ "$DRY_RUN" = true ]; then
     log_info "[DRY RUN] Would pull and extract bundle to ~/.claude/"
     log_info "Items: $(echo "$remote_items" | jq -r 'join(", ")')"
@@ -138,16 +246,37 @@ mkdir -p "$CLAUDE_DIR/skills"
 mkdir -p "$CLAUDE_DIR/agents"
 mkdir -p "$CLAUDE_DIR/commands"
 
-# Extract using the utility function
-if cat "$TEMP_DIR/bundle.txt" | extract_settings_bundle; then
-    log_success "Bundle extracted successfully"
+# Extract using the utility function (with optional filter)
+if [ ${#ONLY_ITEMS[@]} -gt 0 ]; then
+    log_info "Extracting only: ${ONLY_ITEMS[*]}"
+    if cat "$TEMP_DIR/bundle.txt" | extract_settings_bundle "${ONLY_ITEMS[@]}"; then
+        log_success "Selected items extracted successfully"
+    else
+        log_error "Failed to extract bundle"
+        exit 1
+    fi
 else
-    log_error "Failed to extract bundle"
-    exit 1
+    if cat "$TEMP_DIR/bundle.txt" | extract_settings_bundle; then
+        log_success "Bundle extracted successfully"
+    else
+        log_error "Failed to extract bundle"
+        exit 1
+    fi
 fi
 
-# Show skills install guidance if manifest exists
-if [ -f "$CLAUDE_DIR/skills-manifest.json" ]; then
+# Show skills install guidance if manifest exists and skills was pulled
+show_skills_guidance=true
+if [ ${#ONLY_ITEMS[@]} -gt 0 ]; then
+    show_skills_guidance=false
+    for item in "${ONLY_ITEMS[@]}"; do
+        if [ "$item" = "skills" ]; then
+            show_skills_guidance=true
+            break
+        fi
+    done
+fi
+
+if [ "$show_skills_guidance" = true ] && [ -f "$CLAUDE_DIR/skills-manifest.json" ]; then
     show_skills_install_guidance "$CLAUDE_DIR/skills-manifest.json"
 fi
 

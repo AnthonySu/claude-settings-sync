@@ -454,14 +454,30 @@ show_skills_install_guidance() {
 }
 
 # Create a single compressed bundle of all settings
+# Args: optional filter items (space-separated). If empty, include all.
 # Output: base64-encoded xz-compressed tarball to stdout
 create_settings_bundle() {
+    local filter_items=("$@")
     local temp_dir=$(mktemp -d)
     local bundle_dir="$temp_dir/claude-settings"
     mkdir -p "$bundle_dir"
 
     # Copy files and directories that exist
     for item in "${BUNDLE_ITEMS[@]}"; do
+        # Skip if filter specified and item not in filter
+        if [ ${#filter_items[@]} -gt 0 ]; then
+            local in_filter=false
+            for f in "${filter_items[@]}"; do
+                if [ "$item" = "$f" ]; then
+                    in_filter=true
+                    break
+                fi
+            done
+            if [ "$in_filter" = false ]; then
+                continue
+            fi
+        fi
+
         local src="$CLAUDE_DIR/$item"
         if [ -e "$src" ]; then
             if [ -d "$src" ]; then
@@ -476,8 +492,19 @@ create_settings_bundle() {
         fi
     done
 
-    # Create skills manifest (instead of bundling full skills directory)
-    if [ -d "$CLAUDE_DIR/skills" ] && [ "$(ls -A "$CLAUDE_DIR/skills" 2>/dev/null)" ]; then
+    # Create skills manifest if skills is in filter (or no filter)
+    local include_skills=true
+    if [ ${#filter_items[@]} -gt 0 ]; then
+        include_skills=false
+        for f in "${filter_items[@]}"; do
+            if [ "$f" = "skills" ]; then
+                include_skills=true
+                break
+            fi
+        done
+    fi
+
+    if [ "$include_skills" = true ] && [ -d "$CLAUDE_DIR/skills" ] && [ "$(ls -A "$CLAUDE_DIR/skills" 2>/dev/null)" ]; then
         create_skills_manifest > "$bundle_dir/skills-manifest.json"
     fi
 
@@ -501,9 +528,70 @@ EOF
     rm -rf "$temp_dir"
 }
 
+# Create bundle with selective items, merging with existing remote
+# Args: existing_bundle_base64, filter_items...
+create_merged_bundle() {
+    local existing_bundle="$1"
+    shift
+    local filter_items=("$@")
+
+    local temp_dir=$(mktemp -d)
+    local bundle_dir="$temp_dir/claude-settings"
+    mkdir -p "$bundle_dir"
+
+    # Extract existing bundle if provided
+    if [ -n "$existing_bundle" ]; then
+        echo "$existing_bundle" | base64 -d | xz -d | tar -xf - -C "$temp_dir" 2>/dev/null
+    fi
+
+    # Overlay local items (only the filtered ones)
+    for item in "${filter_items[@]}"; do
+        local src="$CLAUDE_DIR/$item"
+        local dst="$bundle_dir/$item"
+
+        if [ -e "$src" ]; then
+            if [ -d "$src" ]; then
+                rm -rf "$dst"
+                if [ "$(ls -A "$src" 2>/dev/null)" ]; then
+                    cp -r "$src" "$bundle_dir/"
+                fi
+            else
+                cp "$src" "$bundle_dir/"
+            fi
+        fi
+
+        # Handle skills specially
+        if [ "$item" = "skills" ] && [ -d "$CLAUDE_DIR/skills" ]; then
+            create_skills_manifest > "$bundle_dir/skills-manifest.json"
+        fi
+    done
+
+    # Update bundle metadata
+    local items_with_manifest=("${BUNDLE_ITEMS[@]}" "skills-manifest.json")
+    cat > "$bundle_dir/.bundle-meta.json" << EOF
+{
+    "version": "2.1.0",
+    "compression": "xz",
+    "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "device": "$(hostname)",
+    "items": $(printf '%s\n' "${items_with_manifest[@]}" | jq -R . | jq -s .),
+    "skills_mode": "manifest",
+    "partial_update": $(printf '%s\n' "${filter_items[@]}" | jq -R . | jq -s .)
+}
+EOF
+
+    # Create tarball
+    tar -cf - -C "$temp_dir" "claude-settings" 2>/dev/null | xz -9 | base64
+
+    # Cleanup
+    rm -rf "$temp_dir"
+}
+
 # Extract settings bundle to CLAUDE_DIR
+# Args: optional filter items (space-separated). If empty, extract all.
 # Input: base64-encoded xz-compressed tarball from stdin
 extract_settings_bundle() {
+    local filter_items=("$@")
     local temp_dir=$(mktemp -d)
 
     # Decode, decompress (xz), extract
@@ -517,6 +605,20 @@ extract_settings_bundle() {
 
     # Copy extracted items to CLAUDE_DIR
     for item in "${BUNDLE_ITEMS[@]}"; do
+        # Skip if filter specified and item not in filter
+        if [ ${#filter_items[@]} -gt 0 ]; then
+            local in_filter=false
+            for f in "${filter_items[@]}"; do
+                if [ "$item" = "$f" ]; then
+                    in_filter=true
+                    break
+                fi
+            done
+            if [ "$in_filter" = false ]; then
+                continue
+            fi
+        fi
+
         local src="$temp_dir/claude-settings/$item"
         local dst="$CLAUDE_DIR/$item"
 
@@ -532,10 +634,23 @@ extract_settings_bundle() {
         fi
     done
 
-    # Handle skills manifest (v2.1+ bundles)
-    local skills_manifest="$temp_dir/claude-settings/skills-manifest.json"
-    if [ -f "$skills_manifest" ]; then
-        cp "$skills_manifest" "$CLAUDE_DIR/skills-manifest.json"
+    # Handle skills manifest (v2.1+ bundles) - only if skills in filter or no filter
+    local include_skills=true
+    if [ ${#filter_items[@]} -gt 0 ]; then
+        include_skills=false
+        for f in "${filter_items[@]}"; do
+            if [ "$f" = "skills" ]; then
+                include_skills=true
+                break
+            fi
+        done
+    fi
+
+    if [ "$include_skills" = true ]; then
+        local skills_manifest="$temp_dir/claude-settings/skills-manifest.json"
+        if [ -f "$skills_manifest" ]; then
+            cp "$skills_manifest" "$CLAUDE_DIR/skills-manifest.json"
+        fi
     fi
 
     # Cleanup
@@ -667,6 +782,115 @@ get_local_manifest() {
         }')
 
     echo "$manifest"
+}
+
+# === Selective Sync ===
+
+# Valid items for --only flag
+VALID_SYNC_ITEMS=("settings.json" "CLAUDE.md" "agents" "commands" "skills")
+
+# Validate --only items
+validate_only_items() {
+    local items=("$@")
+    for item in "${items[@]}"; do
+        local found=false
+        for valid in "${VALID_SYNC_ITEMS[@]}"; do
+            if [ "$item" = "$valid" ]; then
+                found=true
+                break
+            fi
+        done
+        if [ "$found" = false ]; then
+            log_error "Invalid item: $item"
+            log_info "Valid items: ${VALID_SYNC_ITEMS[*]}"
+            return 1
+        fi
+    done
+    return 0
+}
+
+# Check if item should be synced (based on --only filter)
+should_sync_item() {
+    local item="$1"
+    shift
+    local only_items=("$@")
+
+    # If no --only specified, sync everything
+    if [ ${#only_items[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    # Check if item is in the filter list
+    for only_item in "${only_items[@]}"; do
+        if [ "$item" = "$only_item" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# === Conflict Detection ===
+
+# Get local settings last modified time (most recent file in bundle items)
+get_local_modified_time() {
+    local latest=""
+    for item in "${BUNDLE_ITEMS[@]}"; do
+        local src="$CLAUDE_DIR/$item"
+        if [ -e "$src" ]; then
+            local mtime
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                mtime=$(stat -f "%m" "$src" 2>/dev/null)
+            else
+                mtime=$(stat -c "%Y" "$src" 2>/dev/null)
+            fi
+            if [ -n "$mtime" ] && [ -z "$latest" -o "$mtime" -gt "$latest" ]; then
+                latest="$mtime"
+            fi
+        fi
+    done
+    # Convert to ISO format
+    if [ -n "$latest" ]; then
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            date -r "$latest" -u +%Y-%m-%dT%H:%M:%SZ
+        else
+            date -d "@$latest" -u +%Y-%m-%dT%H:%M:%SZ
+        fi
+    fi
+}
+
+# Get remote manifest timestamp from gist
+get_remote_timestamp() {
+    local gist_data="$1"
+    echo "$gist_data" | grep -o '"timestamp": *"[^"]*"' | head -1 | sed 's/.*"timestamp": *"\([^"]*\)".*/\1/'
+}
+
+# Compare timestamps, return: "local_newer", "remote_newer", "equal", or "unknown"
+compare_sync_times() {
+    local local_time="$1"
+    local remote_time="$2"
+
+    if [ -z "$local_time" ] || [ -z "$remote_time" ]; then
+        echo "unknown"
+        return
+    fi
+
+    # Convert to epoch for comparison
+    local local_epoch remote_epoch
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        local_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$local_time" "+%s" 2>/dev/null || echo "0")
+        remote_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$remote_time" "+%s" 2>/dev/null || echo "0")
+    else
+        local_epoch=$(date -d "$local_time" "+%s" 2>/dev/null || echo "0")
+        remote_epoch=$(date -d "$remote_time" "+%s" 2>/dev/null || echo "0")
+    fi
+
+    if [ "$local_epoch" -gt "$remote_epoch" ]; then
+        echo "local_newer"
+    elif [ "$remote_epoch" -gt "$local_epoch" ]; then
+        echo "remote_newer"
+    else
+        echo "equal"
+    fi
 }
 
 # === Main check ===

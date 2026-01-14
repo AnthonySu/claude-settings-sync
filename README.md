@@ -4,6 +4,7 @@ Sync your Claude Code settings across devices using GitHub Gists.
 
 ## Changelog
 
+- **v2.2.0** - Conflict detection, `--diff` preview, `--only` selective sync, quick restore
 - **v2.1.0** - Skill manifest sync (50MB+ → 9KB), version history with device tracking
 - **v2.0.0** - Compressed xz bundles, improved status display
 - **v1.0.0** - Initial release
@@ -56,8 +57,25 @@ Enter your token when prompted. This creates a private Gist for your settings.
 | `/claude-settings-sync:setup` | Configure GitHub token and Gist |
 | `/claude-settings-sync:push` | Upload local settings to Gist |
 | `/claude-settings-sync:pull` | Download settings from Gist |
+| `/claude-settings-sync:restore` | Restore from local backup |
 | `/claude-settings-sync` | Show sync status |
 | `/claude-settings-sync:uninstall` | Remove plugin and configuration |
+
+### Options
+
+```bash
+# Conflict detection (automatic)
+push/pull  # Warns if remote/local is newer
+
+# Preview changes before pull
+pull --diff
+
+# Selective sync (comma-separated items)
+push --only=commands,CLAUDE.md
+pull --only=settings.json
+
+# Valid items: settings.json, CLAUDE.md, agents, commands, skills
+```
 
 ### Sync to a new device
 

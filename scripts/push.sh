@@ -8,10 +8,12 @@ source "$SCRIPT_DIR/utils.sh"
 # Parse arguments
 FORCE=false
 DRY_RUN=false
+ONLY_ITEMS=()
 for arg in "$@"; do
     case $arg in
         --force) FORCE=true ;;
         --dry-run) DRY_RUN=true ;;
+        --only=*) IFS=',' read -ra ONLY_ITEMS <<< "${arg#*=}" ;;
     esac
 done
 
@@ -42,10 +44,25 @@ fi
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
+# Validate --only items if specified
+if [ ${#ONLY_ITEMS[@]} -gt 0 ]; then
+    if ! validate_only_items "${ONLY_ITEMS[@]}"; then
+        exit 1
+    fi
+    log_info "Selective sync: ${ONLY_ITEMS[*]}"
+    echo ""
+fi
+
 # Show what will be synced
 log_info "Items to sync:"
 item_count=0
 for item in "${BUNDLE_ITEMS[@]}"; do
+    # Skip if --only specified and item not in list
+    if ! should_sync_item "$item" "${ONLY_ITEMS[@]}"; then
+        echo -e "  ${YELLOW}$item (skipped - not in --only)${NC}"
+        continue
+    fi
+
     src="$CLAUDE_DIR/$item"
     if [ -e "$src" ]; then
         if [ -d "$src" ]; then
@@ -67,11 +84,15 @@ done
 
 # Show skills info (synced as manifest only)
 skill_count=0
-if [ -d "$CLAUDE_DIR/skills" ] && [ "$(ls -A "$CLAUDE_DIR/skills" 2>/dev/null)" ]; then
-    skill_count=$(ls -1d "$CLAUDE_DIR/skills"/*/ 2>/dev/null | wc -l | tr -d ' ')
-    skills_size=$(du -sh "$CLAUDE_DIR/skills" 2>/dev/null | cut -f1)
-    log_success "  skills/ ($skill_count skills, manifest only - full: $skills_size)"
-    ((item_count++))
+if should_sync_item "skills" "${ONLY_ITEMS[@]}"; then
+    if [ -d "$CLAUDE_DIR/skills" ] && [ "$(ls -A "$CLAUDE_DIR/skills" 2>/dev/null)" ]; then
+        skill_count=$(ls -1d "$CLAUDE_DIR/skills"/*/ 2>/dev/null | wc -l | tr -d ' ')
+        skills_size=$(du -sh "$CLAUDE_DIR/skills" 2>/dev/null | cut -f1)
+        log_success "  skills/ ($skill_count skills, manifest only - full: $skills_size)"
+        ((item_count++))
+    fi
+else
+    echo -e "  ${YELLOW}skills (skipped - not in --only)${NC}"
 fi
 
 if [ "$item_count" -eq 0 ]; then
@@ -85,8 +106,31 @@ echo ""
 log_info "Estimated raw size: ${raw_size}KB"
 log_info "Creating compressed bundle (xz -9)..."
 
-# Create the bundle
-bundle_content=$(create_settings_bundle)
+# Create the bundle (with selective merge if --only specified)
+if [ ${#ONLY_ITEMS[@]} -gt 0 ]; then
+    log_info "Selective push: merging with existing remote..."
+
+    # Fetch existing bundle to merge with
+    existing_gist=$(get_gist 2>/dev/null || echo "{}")
+    existing_bundle=""
+
+    # Check if remote has a bundle
+    has_bundle=$(echo "$existing_gist" | grep -o '"settings-bundle.tar.gz.b64"' | head -1)
+    if [ -n "$has_bundle" ]; then
+        truncated=$(echo "$existing_gist" | grep -o '"truncated": *true' | head -1)
+        if [ -n "$truncated" ]; then
+            raw_url=$(echo "$existing_gist" | grep -o '"raw_url": *"[^"]*settings-bundle[^"]*"' | head -1 | sed 's/.*"raw_url": *"\([^"]*\)".*/\1/')
+            existing_bundle=$(curl -s -H "Authorization: token $(get_config_value github_token)" "$raw_url")
+        else
+            existing_bundle=$(echo "$existing_gist" | jq -r '.files["settings-bundle.tar.gz.b64"].content // empty' 2>/dev/null)
+        fi
+    fi
+
+    bundle_content=$(create_merged_bundle "$existing_bundle" "${ONLY_ITEMS[@]}")
+else
+    bundle_content=$(create_settings_bundle)
+fi
+
 bundle_size=$(echo "$bundle_content" | wc -c | tr -d ' ')
 bundle_size_kb=$((bundle_size / 1024))
 
@@ -102,6 +146,35 @@ fi
 
 echo ""
 log_info "Ready to push to Gist: $gist_id"
+
+# Conflict detection
+log_info "Checking for conflicts..."
+existing_gist_check=$(get_gist 2>/dev/null || echo "{}")
+remote_time=$(get_remote_timestamp "$existing_gist_check")
+last_sync=$(get_config_value "last_sync")
+
+if [ -n "$remote_time" ] && [ -n "$last_sync" ]; then
+    sync_status=$(compare_sync_times "$last_sync" "$remote_time")
+    if [ "$sync_status" = "remote_newer" ]; then
+        echo ""
+        log_warn "Remote is newer than your last sync!"
+        echo "  Remote: $remote_time"
+        echo "  Last sync: $last_sync"
+        echo ""
+        log_warn "Another device may have pushed changes. Consider pulling first."
+        if [ "$FORCE" != true ]; then
+            read -p "Push anyway and overwrite remote? (y/N): " confirm
+            if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+                log_info "Push cancelled. Run /claude-settings-sync:pull first."
+                exit 0
+            fi
+        fi
+    else
+        log_success "No conflicts detected"
+    fi
+else
+    log_info "First push or no sync history"
+fi
 
 # Confirmation
 if [ "$FORCE" != true ]; then
