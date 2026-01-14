@@ -1,5 +1,6 @@
 #!/bin/bash
 # status.sh - Show sync status and configuration
+# Version 2.0 - Updated for bundle format
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils.sh"
@@ -65,7 +66,8 @@ check_dir() {
     local name="$2"
     if [ -d "$path" ] && [ "$(ls -A "$path" 2>/dev/null)" ]; then
         local count=$(ls -1 "$path" 2>/dev/null | wc -l | tr -d ' ')
-        echo "│ ✓ $name/ ($count items)"
+        local size=$(du -sh "$path" 2>/dev/null | cut -f1)
+        echo "│ ✓ $name/ ($count items, $size)"
     elif [ -d "$path" ]; then
         echo "│ ○ $name/ (empty)"
     else
@@ -73,11 +75,19 @@ check_dir() {
     fi
 }
 
-check_file "$CLAUDE_DIR/settings.json" "settings.json"
-check_file "$CLAUDE_DIR/CLAUDE.md" "CLAUDE.md"
-check_dir "$CLAUDE_DIR/skills" "skills"
-check_dir "$CLAUDE_DIR/agents" "agents"
-check_dir "$CLAUDE_DIR/commands" "commands"
+for item in "${BUNDLE_ITEMS[@]}"; do
+    src="$CLAUDE_DIR/$item"
+    if [ -d "$src" ]; then
+        check_dir "$src" "$item"
+    else
+        check_file "$src" "$item"
+    fi
+done
+
+# Show estimated bundle size
+raw_size=$(get_bundle_size_estimate)
+echo "│"
+echo "│ Total raw size: ${raw_size}KB"
 
 echo "└──────────────────────────────────────────────────────────────┘"
 echo ""
@@ -89,23 +99,40 @@ if [ -n "$gist_id" ]; then
     gist_data=$(get_gist 2>/dev/null)
 
     if echo "$gist_data" | jq -e '.files' > /dev/null 2>&1; then
+        # Check for v2.0 bundle format
+        has_bundle=$(echo "$gist_data" | jq -e '.files["settings-bundle.tar.gz.b64"]' > /dev/null 2>&1 && echo "true" || echo "false")
+
         # Get manifest
         manifest=$(echo "$gist_data" | jq -r '.files["manifest.json"].content // "{}"')
+        remote_version=$(echo "$manifest" | jq -r '.version // "1.0"')
         remote_device=$(echo "$manifest" | jq -r '.device // "unknown"')
         remote_time=$(echo "$manifest" | jq -r '.timestamp // "unknown"')
 
+        echo "│ Format version: $remote_version"
         echo "│ Last pushed by: $remote_device"
         echo "│ Push time:      $remote_time"
-        echo "│"
 
-        # List files
-        echo "│ Files in Gist:"
-        for f in $(echo "$gist_data" | jq -r '.files | keys[]'); do
-            if [[ "$f" != "manifest.json" ]]; then
-                size=$(echo "$gist_data" | jq -r ".files[\"$f\"].size")
-                echo "│   • $f ($size bytes)"
-            fi
-        done
+        if [ "$has_bundle" = "true" ]; then
+            # v2.0 bundle format
+            bundle_size=$(echo "$manifest" | jq -r '.bundle_size_bytes // 0')
+            bundle_size_kb=$((bundle_size / 1024))
+            remote_items=$(echo "$manifest" | jq -r '.items // []')
+
+            echo "│ Bundle size:    ${bundle_size_kb}KB"
+            echo "│ Items:          $(echo "$remote_items" | jq -r 'join(", ")')"
+        else
+            # v1.x individual file format
+            echo "│"
+            echo "│ Files in Gist (v1.x format):"
+            for f in $(echo "$gist_data" | jq -r '.files | keys[]'); do
+                if [[ "$f" != "manifest.json" ]]; then
+                    size=$(echo "$gist_data" | jq -r ".files[\"$f\"].size")
+                    echo "│   • $f ($size bytes)"
+                fi
+            done
+            echo "│"
+            echo -e "│ ${YELLOW}Note: Old format detected. Push to upgrade to v2.0${NC}"
+        fi
     else
         echo "│ Error fetching gist: $(echo "$gist_data" | jq -r '.message // "unknown error"')"
     fi
@@ -116,76 +143,83 @@ fi
 echo "└──────────────────────────────────────────────────────────────┘"
 echo ""
 
-# === Sync Status ===
-echo "┌─ Sync Comparison ─────────────────────────────────────────────┐"
+# === Version History ===
+echo "┌─ Version History ───────────────────────────────────────────┐"
 
-if [ -n "$gist_id" ] && echo "$gist_data" | jq -e '.files' > /dev/null 2>&1; then
-    # Compare hashes
-    local_manifest=$(get_local_manifest)
-    remote_manifest=$(echo "$gist_data" | jq -r '.files["manifest.json"].content // "{}"')
+if [ -n "$gist_id" ]; then
+    # Get sync history from gist (contains device info per push)
+    sync_history=$(get_sync_history_from_gist "$gist_data")
 
-    local_settings_hash=$(echo "$local_manifest" | jq -r '.hashes.settings // ""')
-    remote_settings_raw=$(echo "$gist_data" | jq -r '.files["settings.json"].content // ""')
+    if [ -n "$sync_history" ] && [ "$sync_history" != "[]" ] && [ "$sync_history" != "null" ]; then
+        entry_count=$(echo "$sync_history" | jq 'length')
+        echo "│ Recent pushes (last $entry_count):"
+        echo "│"
 
-    # Simple comparison - check if files exist in both places
-    has_diff=false
+        echo "$sync_history" | jq -r '.[] | "\(.timestamp)|\(.device)|\(.bundle_size_kb // 0)|\(.skill_count // 0)"' | while IFS='|' read -r timestamp device bundle_kb skills; do
+            # Parse timestamp to readable format
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                readable_time=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$timestamp" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "$timestamp")
+            else
+                readable_time=$(date -d "$timestamp" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "$timestamp")
+            fi
 
-    # Check settings.json
-    if [ -f "$CLAUDE_DIR/settings.json" ]; then
-        if echo "$gist_data" | jq -e '.files["settings.json"]' > /dev/null 2>&1; then
-            echo "│ settings.json:  Local ✓  Remote ✓"
-        else
-            echo "│ settings.json:  Local ✓  Remote ✗  (needs push)"
-            has_diff=true
-        fi
+            # Truncate device name if too long
+            if [ ${#device} -gt 15 ]; then
+                device="${device:0:12}..."
+            fi
+
+            printf "│   • %-16s  %-15s  %3sKB  %2s skills\n" "$readable_time" "$device" "$bundle_kb" "$skills"
+        done
     else
-        if echo "$gist_data" | jq -e '.files["settings.json"]' > /dev/null 2>&1; then
-            echo "│ settings.json:  Local ✗  Remote ✓  (needs pull)"
-            has_diff=true
-        fi
-    fi
+        # Fallback to git commits if no sync history
+        echo "│ No sync history found (push to start tracking)"
+        echo "│"
+        echo "│ Showing gist commits instead:"
 
-    # Check CLAUDE.md
-    if [ -f "$CLAUDE_DIR/CLAUDE.md" ]; then
-        if echo "$gist_data" | jq -e '.files["CLAUDE.md"]' > /dev/null 2>&1; then
-            echo "│ CLAUDE.md:      Local ✓  Remote ✓"
-        else
-            echo "│ CLAUDE.md:      Local ✓  Remote ✗  (needs push)"
-            has_diff=true
+        history_data=$(get_gist_history 3 2>/dev/null)
+        if echo "$history_data" | jq -e '.[0]' > /dev/null 2>&1; then
+            echo "$history_data" | jq -r '.[] | "\(.committed_at)|\(.version)"' | while IFS='|' read -r timestamp version; do
+                if [[ "$OSTYPE" == "darwin"* ]]; then
+                    readable_time=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$timestamp" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "$timestamp")
+                else
+                    readable_time=$(date -d "$timestamp" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "$timestamp")
+                fi
+                short_ver="${version:0:7}"
+                echo "│   • $readable_time  [$short_ver]"
+            done
         fi
-    else
-        if echo "$gist_data" | jq -e '.files["CLAUDE.md"]' > /dev/null 2>&1; then
-            echo "│ CLAUDE.md:      Local ✗  Remote ✓  (needs pull)"
-            has_diff=true
-        fi
-    fi
-
-    # Check directories
-    for item in skills agents commands; do
-        local_exists=false
-        remote_exists=false
-        [ -d "$CLAUDE_DIR/$item" ] && [ "$(ls -A "$CLAUDE_DIR/$item" 2>/dev/null)" ] && local_exists=true
-        echo "$gist_data" | jq -e ".files[\"$item.tar.gz.b64\"]" > /dev/null 2>&1 && remote_exists=true
-
-        if $local_exists && $remote_exists; then
-            printf "│ %-15s Local ✓  Remote ✓\n" "$item/:"
-        elif $local_exists; then
-            printf "│ %-15s Local ✓  Remote ✗  (needs push)\n" "$item/:"
-            has_diff=true
-        elif $remote_exists; then
-            printf "│ %-15s Local ✗  Remote ✓  (needs pull)\n" "$item/:"
-            has_diff=true
-        fi
-    done
-
-    echo "│"
-    if $has_diff; then
-        echo "│ Status: OUT OF SYNC"
-    else
-        echo "│ Status: IN SYNC (content may still differ)"
     fi
 else
-    echo "│ Cannot compare - remote not accessible"
+    echo "│ No Gist configured"
+fi
+
+echo "└──────────────────────────────────────────────────────────────┘"
+echo ""
+
+# === Sync Status ===
+echo "┌─ Sync Status ────────────────────────────────────────────────┐"
+
+if [ -n "$gist_id" ] && echo "$gist_data" | jq -e '.files' > /dev/null 2>&1; then
+    if [ "$has_bundle" = "true" ]; then
+        # v2.0 - can't easily compare without downloading and extracting
+        echo "│ Format: v2.0 (compressed bundle)"
+        echo "│"
+        echo "│ Local vs Remote comparison requires downloading bundle."
+        echo "│ Use --dry-run with push/pull to preview changes."
+        echo "│"
+
+        # Basic time-based suggestion
+        if [ -n "$last_sync" ]; then
+            echo "│ Last sync: $last_sync"
+            echo "│ Remote push: $remote_time"
+        fi
+    else
+        # v1.x - individual file comparison (legacy)
+        echo "│ Format: v1.x (individual files)"
+        echo "│ Run push to upgrade to v2.0 bundle format."
+    fi
+else
+    echo "│ Cannot determine sync status - remote not accessible"
 fi
 
 echo "└──────────────────────────────────────────────────────────────┘"

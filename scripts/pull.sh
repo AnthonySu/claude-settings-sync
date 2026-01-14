@@ -1,6 +1,6 @@
 #!/bin/bash
-# pull.sh - Pull settings from GitHub Gist
-# Handles truncated files by fetching from raw_url
+# pull.sh - Pull settings from GitHub Gist (single compressed bundle)
+# Version 2.0 - Handles new bundle format with fallback for large files via raw_url
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils.sh"
@@ -23,13 +23,13 @@ echo ""
 
 # Check configuration
 if ! config_exists; then
-    log_error "Not configured. Run /sync:setup first."
+    log_error "Not configured. Run /claude-settings-sync:setup first."
     exit 1
 fi
 
 gist_id=$(get_config_value "gist_id")
 if [ -z "$gist_id" ]; then
-    log_error "Gist ID not found. Run /sync:setup first."
+    log_error "Gist ID not found. Run /claude-settings-sync:setup first."
     exit 1
 fi
 
@@ -46,7 +46,7 @@ trap "rm -rf $TEMP_DIR" EXIT
 log_info "Fetching settings from Gist..."
 gist_data=$(get_gist)
 
-# Save gist data to temp file to avoid parsing issues with large content
+# Save gist data to temp file
 echo "$gist_data" > "$TEMP_DIR/gist_metadata.json"
 
 if ! jq -e '.files' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
@@ -55,37 +55,37 @@ if ! jq -e '.files' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
     exit 1
 fi
 
-# Check what's available
-log_info "Available in Gist:"
-available_files=$(jq -r '.files | keys[]' "$TEMP_DIR/gist_metadata.json")
-for f in $available_files; do
-    if [[ "$f" != "manifest.json" ]]; then
-        echo "  - $f"
-    fi
-done
+# Check for bundle format (v2.0)
+has_bundle=$(jq -e '.files["settings-bundle.tar.gz.b64"]' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1 && echo "true" || echo "false")
 
-# Check manifest
-remote_manifest=$(jq -r '.files["manifest.json"].content // "{}"' "$TEMP_DIR/gist_metadata.json")
-remote_device=$(echo "$remote_manifest" | jq -r '.device // "unknown"')
-remote_time=$(echo "$remote_manifest" | jq -r '.timestamp // "unknown"')
+if [ "$has_bundle" != "true" ]; then
+    log_error "No settings bundle found in Gist."
+    log_info "This Gist may be using an older format. Please push again to update."
+    exit 1
+fi
+
+# Read manifest
+manifest_content=$(jq -r '.files["manifest.json"].content // "{}"' "$TEMP_DIR/gist_metadata.json")
+remote_version=$(echo "$manifest_content" | jq -r '.version // "unknown"')
+remote_device=$(echo "$manifest_content" | jq -r '.device // "unknown"')
+remote_time=$(echo "$manifest_content" | jq -r '.timestamp // "unknown"')
+remote_items=$(echo "$manifest_content" | jq -r '.items // []')
+bundle_size=$(echo "$manifest_content" | jq -r '.bundle_size_bytes // 0')
+bundle_size_kb=$((bundle_size / 1024))
 
 echo ""
-log_info "Last pushed from: $remote_device"
-log_info "Last push time: $remote_time"
+log_info "Remote bundle info:"
+echo "  Version: $remote_version"
+echo "  Device: $remote_device"
+echo "  Timestamp: $remote_time"
+echo "  Bundle size: ${bundle_size_kb}KB"
+echo "  Items: $(echo "$remote_items" | jq -r 'join(", ")')"
 echo ""
 
 # Dry run check
 if [ "$DRY_RUN" = true ]; then
-    log_info "[DRY RUN] Would pull the following files:"
-    for f in $available_files; do
-        case "$f" in
-            "settings.json") echo "  settings.json -> ~/.claude/settings.json" ;;
-            "CLAUDE.md") echo "  CLAUDE.md -> ~/.claude/CLAUDE.md" ;;
-            "skills.tar.gz.b64") echo "  skills.tar.gz.b64 -> ~/.claude/skills/" ;;
-            "agents.tar.gz.b64") echo "  agents.tar.gz.b64 -> ~/.claude/agents/" ;;
-            "commands.tar.gz.b64") echo "  commands.tar.gz.b64 -> ~/.claude/commands/" ;;
-        esac
-    done
+    log_info "[DRY RUN] Would pull and extract bundle to ~/.claude/"
+    log_info "Items: $(echo "$remote_items" | jq -r 'join(", ")')"
     exit 0
 fi
 
@@ -105,102 +105,50 @@ backup_path=$(create_backup "pre-pull")
 log_success "Backup saved to: $backup_path"
 cleanup_old_backups
 
-# Ensure directories exist
+# Get bundle content (handle truncated files via raw_url)
+log_info "Downloading bundle..."
+
+truncated=$(jq -r '.files["settings-bundle.tar.gz.b64"].truncated // false' "$TEMP_DIR/gist_metadata.json")
+
+if [ "$truncated" = "true" ]; then
+    # File is truncated, fetch from raw_url
+    raw_url=$(jq -r '.files["settings-bundle.tar.gz.b64"].raw_url' "$TEMP_DIR/gist_metadata.json")
+    log_info "Bundle truncated in API response, fetching full content..."
+    curl -s "$raw_url" > "$TEMP_DIR/bundle.txt"
+else
+    # File is not truncated, extract from metadata
+    jq -r '.files["settings-bundle.tar.gz.b64"].content // empty' "$TEMP_DIR/gist_metadata.json" > "$TEMP_DIR/bundle.txt"
+fi
+
+# Verify bundle was downloaded
+if [ ! -s "$TEMP_DIR/bundle.txt" ]; then
+    log_error "Failed to download bundle"
+    exit 1
+fi
+
+downloaded_size=$(wc -c < "$TEMP_DIR/bundle.txt" | tr -d ' ')
+log_success "Downloaded ${downloaded_size} bytes"
+
+# Extract bundle
+log_info "Extracting bundle..."
+
+# Ensure target directories exist
 mkdir -p "$CLAUDE_DIR"
 mkdir -p "$CLAUDE_DIR/skills"
 mkdir -p "$CLAUDE_DIR/agents"
 mkdir -p "$CLAUDE_DIR/commands"
 
-# Helper function to get file content (handles truncated files)
-get_file_content() {
-    local filename="$1"
-    local output_file="$2"
-
-    local truncated=$(jq -r ".files[\"$filename\"].truncated // false" "$TEMP_DIR/gist_metadata.json")
-
-    if [ "$truncated" = "true" ]; then
-        # File is truncated, fetch from raw_url
-        local raw_url=$(jq -r ".files[\"$filename\"].raw_url" "$TEMP_DIR/gist_metadata.json")
-        curl -s "$raw_url" > "$output_file"
-    else
-        # File is not truncated, extract from metadata
-        jq -r ".files[\"$filename\"].content // empty" "$TEMP_DIR/gist_metadata.json" > "$output_file"
-    fi
-}
-
-# Pull files
-pulled_count=0
-
-# settings.json
-if jq -e '.files["settings.json"]' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
-    get_file_content "settings.json" "$TEMP_DIR/settings.json"
-    if [ -s "$TEMP_DIR/settings.json" ]; then
-        # Try to parse as JSON, if fails just copy as-is
-        if jq -e '.' "$TEMP_DIR/settings.json" > /dev/null 2>&1; then
-            cp "$TEMP_DIR/settings.json" "$CLAUDE_DIR/settings.json"
-        else
-            cp "$TEMP_DIR/settings.json" "$CLAUDE_DIR/settings.json"
-        fi
-        log_success "Pulled settings.json"
-        ((pulled_count++))
-    fi
+# Extract using the utility function
+if cat "$TEMP_DIR/bundle.txt" | extract_settings_bundle; then
+    log_success "Bundle extracted successfully"
+else
+    log_error "Failed to extract bundle"
+    exit 1
 fi
 
-# CLAUDE.md
-if jq -e '.files["CLAUDE.md"]' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
-    get_file_content "CLAUDE.md" "$TEMP_DIR/CLAUDE.md"
-    if [ -s "$TEMP_DIR/CLAUDE.md" ]; then
-        cp "$TEMP_DIR/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
-        log_success "Pulled CLAUDE.md"
-        ((pulled_count++))
-    fi
-fi
-
-# Skills directory
-if jq -e '.files["skills.tar.gz.b64"]' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
-    get_file_content "skills.tar.gz.b64" "$TEMP_DIR/skills.tar.gz.b64"
-    if [ -s "$TEMP_DIR/skills.tar.gz.b64" ]; then
-        # Clear existing skills
-        rm -rf "$CLAUDE_DIR/skills"
-        mkdir -p "$CLAUDE_DIR/skills"
-        # Decode and extract
-        if base64 -d < "$TEMP_DIR/skills.tar.gz.b64" | tar -xzf - -C "$CLAUDE_DIR" 2>/dev/null; then
-            log_success "Pulled skills/"
-            ((pulled_count++))
-        else
-            log_warn "Failed to unpack skills/"
-        fi
-    fi
-fi
-
-# Agents directory
-if jq -e '.files["agents.tar.gz.b64"]' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
-    get_file_content "agents.tar.gz.b64" "$TEMP_DIR/agents.tar.gz.b64"
-    if [ -s "$TEMP_DIR/agents.tar.gz.b64" ]; then
-        rm -rf "$CLAUDE_DIR/agents"
-        mkdir -p "$CLAUDE_DIR/agents"
-        if base64 -d < "$TEMP_DIR/agents.tar.gz.b64" | tar -xzf - -C "$CLAUDE_DIR" 2>/dev/null; then
-            log_success "Pulled agents/"
-            ((pulled_count++))
-        else
-            log_warn "Failed to unpack agents/"
-        fi
-    fi
-fi
-
-# Commands directory
-if jq -e '.files["commands.tar.gz.b64"]' "$TEMP_DIR/gist_metadata.json" > /dev/null 2>&1; then
-    get_file_content "commands.tar.gz.b64" "$TEMP_DIR/commands.tar.gz.b64"
-    if [ -s "$TEMP_DIR/commands.tar.gz.b64" ]; then
-        rm -rf "$CLAUDE_DIR/commands"
-        mkdir -p "$CLAUDE_DIR/commands"
-        if base64 -d < "$TEMP_DIR/commands.tar.gz.b64" | tar -xzf - -C "$CLAUDE_DIR" 2>/dev/null; then
-            log_success "Pulled commands/"
-            ((pulled_count++))
-        else
-            log_warn "Failed to unpack commands/"
-        fi
-    fi
+# Show skills install guidance if manifest exists
+if [ -f "$CLAUDE_DIR/skills-manifest.json" ]; then
+    show_skills_install_guidance "$CLAUDE_DIR/skills-manifest.json"
 fi
 
 # Update last sync time
@@ -210,8 +158,9 @@ set_config_value "last_pull_from" "\"$remote_device\""
 echo ""
 log_success "Pull complete!"
 echo ""
-echo "  Files pulled: $pulled_count"
 echo "  Source device: $remote_device"
+echo "  Source time: $remote_time"
+echo "  Items restored: $(echo "$remote_items" | jq -r 'join(", ")')"
 echo "  Backup location: $backup_path"
 echo ""
 log_info "Restart Claude Code for changes to take effect."

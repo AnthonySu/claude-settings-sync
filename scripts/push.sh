@@ -1,6 +1,6 @@
 #!/bin/bash
-# push.sh - Push local settings to GitHub Gist
-# Uses temp files to avoid "Argument list too long" errors
+# push.sh - Push local settings to GitHub Gist as a single compressed bundle
+# Version 2.0 - Uses single tarball for better compression and larger file support
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils.sh"
@@ -23,13 +23,13 @@ echo ""
 
 # Check configuration
 if ! config_exists; then
-    log_error "Not configured. Run /sync:setup first."
+    log_error "Not configured. Run /claude-settings-sync:setup first."
     exit 1
 fi
 
 gist_id=$(get_config_value "gist_id")
 if [ -z "$gist_id" ]; then
-    log_error "Gist ID not found. Run /sync:setup first."
+    log_error "Gist ID not found. Run /claude-settings-sync:setup first."
     exit 1
 fi
 
@@ -38,85 +38,70 @@ if ! check_dependencies; then
     exit 1
 fi
 
-# Create temp directory for building payload
+# Create temp directory
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
-# Initialize files payload
-echo '{}' > "$TEMP_DIR/files_payload.json"
+# Show what will be synced
+log_info "Items to sync:"
+item_count=0
+for item in "${BUNDLE_ITEMS[@]}"; do
+    src="$CLAUDE_DIR/$item"
+    if [ -e "$src" ]; then
+        if [ -d "$src" ]; then
+            if [ "$(ls -A "$src" 2>/dev/null)" ]; then
+                count=$(ls -1 "$src" 2>/dev/null | wc -l | tr -d ' ')
+                size=$(du -sh "$src" 2>/dev/null | cut -f1)
+                log_success "  $item/ ($count items, $size)"
+                ((item_count++))
+            fi
+        else
+            size=$(du -h "$src" 2>/dev/null | cut -f1)
+            log_success "  $item ($size)"
+            ((item_count++))
+        fi
+    else
+        echo -e "  ${YELLOW}$item (not found)${NC}"
+    fi
+done
 
-# Helper function to add file to payload using temp files
-add_file_to_payload() {
-    local filename="$1"
-    local content_file="$2"
-
-    # Escape content to JSON string and save to temp file
-    jq -Rs . < "$content_file" > "$TEMP_DIR/content.json"
-
-    # Merge into payload using file-based operations
-    jq --arg name "$filename" --slurpfile content "$TEMP_DIR/content.json" \
-        '.[$name] = {"content": $content[0]}' \
-        "$TEMP_DIR/files_payload.json" > "$TEMP_DIR/files_payload_new.json"
-
-    mv "$TEMP_DIR/files_payload_new.json" "$TEMP_DIR/files_payload.json"
-}
-
-# Collect files to sync
-log_info "Collecting settings..."
-
-# settings.json
-if [ -f "$CLAUDE_DIR/settings.json" ]; then
-    add_file_to_payload "settings.json" "$CLAUDE_DIR/settings.json"
-    log_success "  settings.json"
-fi
-
-# CLAUDE.md
-if [ -f "$CLAUDE_DIR/CLAUDE.md" ]; then
-    add_file_to_payload "CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
-    log_success "  CLAUDE.md"
-fi
-
-# Skills directory
+# Show skills info (synced as manifest only)
+skill_count=0
 if [ -d "$CLAUDE_DIR/skills" ] && [ "$(ls -A "$CLAUDE_DIR/skills" 2>/dev/null)" ]; then
-    pack_directory "$CLAUDE_DIR/skills" > "$TEMP_DIR/skills.tar.gz.b64"
-    add_file_to_payload "skills.tar.gz.b64" "$TEMP_DIR/skills.tar.gz.b64"
-    log_success "  skills/ ($(ls "$CLAUDE_DIR/skills" | wc -l | tr -d ' ') items)"
+    skill_count=$(ls -1d "$CLAUDE_DIR/skills"/*/ 2>/dev/null | wc -l | tr -d ' ')
+    skills_size=$(du -sh "$CLAUDE_DIR/skills" 2>/dev/null | cut -f1)
+    log_success "  skills/ ($skill_count skills, manifest only - full: $skills_size)"
+    ((item_count++))
 fi
 
-# Agents directory
-if [ -d "$CLAUDE_DIR/agents" ] && [ "$(ls -A "$CLAUDE_DIR/agents" 2>/dev/null)" ]; then
-    pack_directory "$CLAUDE_DIR/agents" > "$TEMP_DIR/agents.tar.gz.b64"
-    add_file_to_payload "agents.tar.gz.b64" "$TEMP_DIR/agents.tar.gz.b64"
-    log_success "  agents/ ($(ls "$CLAUDE_DIR/agents" | wc -l | tr -d ' ') items)"
-fi
-
-# Commands directory
-if [ -d "$CLAUDE_DIR/commands" ] && [ "$(ls -A "$CLAUDE_DIR/commands" 2>/dev/null)" ]; then
-    pack_directory "$CLAUDE_DIR/commands" > "$TEMP_DIR/commands.tar.gz.b64"
-    add_file_to_payload "commands.tar.gz.b64" "$TEMP_DIR/commands.tar.gz.b64"
-    log_success "  commands/ ($(ls "$CLAUDE_DIR/commands" | wc -l | tr -d ' ') items)"
-fi
-
-# Create manifest
-get_local_manifest > "$TEMP_DIR/manifest.json"
-add_file_to_payload "manifest.json" "$TEMP_DIR/manifest.json"
-
-# Check if anything to push
-file_count=$(jq 'keys | length' "$TEMP_DIR/files_payload.json")
-if [ "$file_count" -le 1 ]; then
+if [ "$item_count" -eq 0 ]; then
     log_warn "No settings found to push."
     exit 0
 fi
 
+# Estimate bundle size
+raw_size=$(get_bundle_size_estimate)
 echo ""
-log_info "Ready to push $file_count files to Gist: $gist_id"
+log_info "Estimated raw size: ${raw_size}KB"
+log_info "Creating compressed bundle (xz -9)..."
+
+# Create the bundle
+bundle_content=$(create_settings_bundle)
+bundle_size=$(echo "$bundle_content" | wc -c | tr -d ' ')
+bundle_size_kb=$((bundle_size / 1024))
+
+log_success "Compressed bundle size: ${bundle_size_kb}KB (base64 encoded)"
 
 # Dry run check
 if [ "$DRY_RUN" = true ]; then
-    log_info "[DRY RUN] Would push the following files:"
-    jq -r 'keys[]' "$TEMP_DIR/files_payload.json"
+    echo ""
+    log_info "[DRY RUN] Would push bundle to Gist: $gist_id"
+    log_info "Bundle contains: ${BUNDLE_ITEMS[*]}"
     exit 0
 fi
+
+echo ""
+log_info "Ready to push to Gist: $gist_id"
 
 # Confirmation
 if [ "$FORCE" != true ]; then
@@ -133,11 +118,54 @@ backup_path=$(create_backup "pre-push")
 log_success "Backup saved to: $backup_path"
 cleanup_old_backups
 
-# Build final payload
-jq -n --slurpfile files "$TEMP_DIR/files_payload.json" '{"files": $files[0]}' > "$TEMP_DIR/payload.json"
+# Build payload with bundle as single file
+log_info "Uploading to GitHub Gist..."
+
+# Save bundle to temp file to avoid argument length issues
+echo "$bundle_content" > "$TEMP_DIR/bundle.txt"
+
+# Fetch existing gist to get sync history
+log_info "Fetching existing sync history..."
+existing_gist=$(get_gist 2>/dev/null || echo "{}")
+existing_history=$(get_sync_history_from_gist "$existing_gist")
+if [ -z "$existing_history" ] || [ "$existing_history" = "null" ]; then
+    existing_history="[]"
+fi
+
+# Create new history entry
+push_timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+new_entry=$(create_history_entry "$(hostname)" "$push_timestamp" "$bundle_size_kb" "$skill_count")
+updated_history=$(append_to_sync_history "$existing_history" "$new_entry" 10)
+
+# Create manifest for the gist (separate from bundle metadata)
+cat > "$TEMP_DIR/manifest.json" << EOF
+{
+    "version": "2.1.0",
+    "format": "bundle",
+    "device": "$(hostname)",
+    "timestamp": "$push_timestamp",
+    "items": $(printf '%s\n' "${BUNDLE_ITEMS[@]}" | jq -R . | jq -s .),
+    "bundle_size_bytes": $bundle_size,
+    "skill_count": $skill_count
+}
+EOF
+
+# Save sync history
+echo "$updated_history" | jq '.' > "$TEMP_DIR/sync-history.json"
+
+# Build the gist payload using file-based operations (avoids argument length limits)
+# First create the JSON structure with manifest and history
+jq -n --arg manifest "$(cat "$TEMP_DIR/manifest.json")" \
+      --arg history "$(cat "$TEMP_DIR/sync-history.json")" \
+    '{"files": {"manifest.json": {"content": $manifest}, "sync-history.json": {"content": $history}}}' > "$TEMP_DIR/payload.json"
+
+# Add bundle content using slurpfile to avoid argument limits
+jq --slurpfile bundle <(jq -Rs . < "$TEMP_DIR/bundle.txt") \
+    '.files["settings-bundle.tar.gz.b64"] = {"content": $bundle[0]}' \
+    "$TEMP_DIR/payload.json" > "$TEMP_DIR/payload_final.json"
+mv "$TEMP_DIR/payload_final.json" "$TEMP_DIR/payload.json"
 
 # Push to Gist
-log_info "Pushing to GitHub Gist..."
 result=$(update_gist_from_file "$TEMP_DIR/payload.json")
 
 if echo "$result" | jq -e '.id' > /dev/null 2>&1; then
@@ -149,11 +177,12 @@ if echo "$result" | jq -e '.id' > /dev/null 2>&1; then
     log_success "Push complete!"
     echo ""
     echo "  Gist URL: https://gist.github.com/$gist_id"
-    echo "  Files pushed: $file_count"
+    echo "  Items synced: $item_count"
+    echo "  Bundle size: ${bundle_size_kb}KB"
     echo "  Timestamp: $(date)"
     echo ""
 else
     log_error "Push failed"
-    echo "$result" | jq -r '.message // .'
+    echo "$result" | jq -r '.message // .' 2>/dev/null || echo "$result"
     exit 1
 fi
