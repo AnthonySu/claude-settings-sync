@@ -23,36 +23,11 @@ Device A (MacBook)                    Device B (iMac)
 
 ## Installation
 
-### Option A: One-Line Install (Recommended)
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AnthonySu/claude-settings-sync/main/install.sh | bash
 ```
 
-This automatically:
-- Clones the repository to the correct location
-- Updates all Claude Code configuration files
-- Makes scripts executable
-
-After installation, restart Claude Code and run `/claude-settings-sync:setup`.
-
-### Option B: Ask Claude
-
-Tell Claude:
-
-```
-Install the claude-settings-sync plugin from https://github.com/AnthonySu/claude-settings-sync
-```
-
-### Option C: Manual
-
-```bash
-# Clone to marketplaces directory
-git clone https://github.com/AnthonySu/claude-settings-sync.git ~/.claude/plugins/marketplaces/claude-settings-sync
-
-# Run the installer
-~/.claude/plugins/marketplaces/claude-settings-sync/install.sh
-```
+Then restart Claude Code and run `/claude-settings-sync:setup`.
 
 ## Setup
 
