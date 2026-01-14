@@ -9,10 +9,9 @@ Device A (MacBook)                    Device B (iMac)
      ▼                                     │
 ┌───────────────────────────────────────────────┐
 │            GitHub Gist (Private)              │
-│  • settings.json                              │
-│  • CLAUDE.md                                  │
-│  • commands/                                  │
-│  • skills/                                    │
+│  • settings.json      • commands/             │
+│  • CLAUDE.md          • skills-manifest.json  │
+│  • agents/            • sync-history.json     │
 └───────────────────────────────────────────────┘
 ```
 
@@ -94,10 +93,10 @@ Enter your token when prompted. This creates a private Gist for your settings.
 | Instructions | `~/.claude/CLAUDE.md` | Yes |
 | Commands | `~/.claude/commands/` | Yes |
 | Agents | `~/.claude/agents/` | Yes |
-| Skills | `~/.claude/skills/` | Partial* |
+| Skills | `~/.claude/skills/` | Manifest only* |
 | MCP Servers | `~/.claude.json` | No (secrets) |
 
-*Large skill packages are excluded to stay within Gist size limits.
+*Skills sync as a manifest (name, description, source) rather than full content. On pull, you'll see which skills to install locally. This keeps bundle size small (~9KB vs 50MB+).
 
 ## Configuration
 
@@ -149,8 +148,23 @@ Your GitHub Gist is **not** deleted (visit https://gist.github.com to remove it 
 
 ## Requirements
 
-- `curl`, `jq` (pre-installed on macOS/Linux)
+- `curl`, `jq`, `xz` (pre-installed on macOS/Linux)
 - GitHub account
+
+## Changelog
+
+### v2.1.0 (2026-01-14)
+- **Skill manifest sync**: Skills now sync as metadata only (name, description, source), reducing bundle from 50MB+ to ~9KB. On pull, shows which skills need local installation.
+- **Version history**: Status now displays push history with device name, timestamp, bundle size, and skill count per entry.
+- **Sync history tracking**: Each push records device info in `sync-history.json` for cross-device visibility.
+
+### v2.0.0 (2026-01-12)
+- **Compressed bundles**: All settings packaged into a single xz-compressed tarball for better efficiency and larger file support.
+- **Improved status**: Shows local vs remote comparison and backup info.
+
+### v1.0.0 (2026-01-08)
+- Initial release with push/pull/status commands.
+- GitHub Gist storage with automatic backup before pull.
 
 ## License
 
