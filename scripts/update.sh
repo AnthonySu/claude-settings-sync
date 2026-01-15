@@ -38,15 +38,25 @@ get_local_version() {
     fi
 }
 
-# Get remote version from GitHub
+# Get remote version from GitHub (try raw URL first, then API as fallback)
 get_remote_version() {
     local version
+
+    # Try raw.githubusercontent.com first (faster, but has CDN cache)
     version=$(curl -s --connect-timeout 5 "$GITHUB_RAW/VERSION" 2>/dev/null | tr -d '[:space:]')
     if [ -n "$version" ] && [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         echo "$version"
-    else
-        echo ""
+        return
     fi
+
+    # Fallback to GitHub API (always up-to-date, but rate-limited)
+    version=$(curl -s --connect-timeout 5 "$GITHUB_API/contents/VERSION" 2>/dev/null | jq -r '.content // empty' | base64 -d 2>/dev/null | tr -d '[:space:]')
+    if [ -n "$version" ] && [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "$version"
+        return
+    fi
+
+    echo ""
 }
 
 # Compare semantic versions: returns "newer", "same", "older", or "error"
