@@ -843,8 +843,10 @@ get_local_modified_time() {
             else
                 mtime=$(stat -c "%Y" "$src" 2>/dev/null)
             fi
-            if [ -n "$mtime" ] && [ -z "$latest" -o "$mtime" -gt "$latest" ]; then
-                latest="$mtime"
+            if [ -n "$mtime" ]; then
+                if [ -z "$latest" ] || [ "$mtime" -gt "$latest" ]; then
+                    latest="$mtime"
+                fi
             fi
         fi
     done
@@ -858,10 +860,18 @@ get_local_modified_time() {
     fi
 }
 
-# Get remote manifest timestamp from gist
+# Get remote manifest timestamp from gist (fetches manifest.json via raw_url)
 get_remote_timestamp() {
     local gist_data="$1"
-    echo "$gist_data" | grep -o '"timestamp": *"[^"]*"' | head -1 | sed 's/.*"timestamp": *"\([^"]*\)".*/\1/'
+    local token=$(get_config_value "github_token")
+
+    # Extract manifest.json raw_url using grep (avoids jq parsing issues)
+    local raw_url=$(echo "$gist_data" | grep -o '"raw_url": *"[^"]*manifest\.json[^"]*"' | head -1 | sed 's/.*"raw_url": *"\([^"]*\)".*/\1/')
+
+    if [ -n "$raw_url" ]; then
+        # Fetch manifest and extract timestamp
+        curl -s -H "Authorization: token $token" "$raw_url" 2>/dev/null | jq -r '.timestamp // empty'
+    fi
 }
 
 # Compare timestamps, return: "local_newer", "remote_newer", "equal", or "unknown"
