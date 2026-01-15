@@ -101,7 +101,7 @@ local_modified=$(get_local_modified_time)
 last_sync=$(get_config_value "last_sync")
 
 if [ -n "$local_modified" ] && [ -n "$last_sync" ]; then
-    sync_status=$(compare_sync_times "$last_sync" "$local_modified")
+    sync_status=$(compare_sync_times "$local_modified" "$last_sync")
     if [ "$sync_status" = "local_newer" ]; then
         echo ""
         log_warn "Local settings modified since last sync!"

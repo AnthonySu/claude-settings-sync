@@ -4,10 +4,10 @@
 set -e
 
 # === Configuration ===
-CONFIG_DIR="$HOME/.claude/plugins-config"
+CONFIG_DIR="${CONFIG_DIR:-$HOME/.claude/plugins-config}"
 CONFIG_FILE="$CONFIG_DIR/sync-config.json"
-BACKUP_DIR="$HOME/.claude/sync-backups"
-CLAUDE_DIR="$HOME/.claude"
+BACKUP_DIR="${BACKUP_DIR:-$HOME/.claude/sync-backups}"
+CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
 
 # Gist description used to identify our sync gist
 GIST_DESCRIPTION="claude-settings-sync"
