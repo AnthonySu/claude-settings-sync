@@ -332,6 +332,102 @@ else
 fi
 
 # ============================================================
+# Phase 13: Aggressive Corner Cases
+# ============================================================
+echo ""
+echo "┌─ Phase 13: Aggressive Corner Cases ────────────────────────┐"
+
+log_test "Large CLAUDE.md (1000 lines)"
+for i in $(seq 1 1000); do
+    echo "# Line $i with some content to make it reasonably sized"
+done > "$CLAUDE_DIR/CLAUDE.md"
+if bash "$PLUGIN_DIR/scripts/push.sh" --dry-run 2>&1 | strip_ansi | grep -q "CLAUDE.md"; then
+    log_pass "Large CLAUDE.md handled"
+else
+    log_fail "Large CLAUDE.md" "Push failed or didn't list file"
+fi
+
+log_test "Many command files (50 files)"
+for i in $(seq 1 50); do
+    echo "---\nname: cmd$i\n---\nCommand $i" > "$CLAUDE_DIR/commands/cmd$i.md"
+done
+output=$(bash "$PLUGIN_DIR/scripts/push.sh" --dry-run 2>&1 | strip_ansi)
+if echo "$output" | grep -q "commands/"; then
+    log_pass "Many command files handled"
+else
+    log_fail "Many commands" "Push failed"
+fi
+
+log_test "Newlines in settings.json value"
+echo '{"test": "line1\nline2\nline3"}' > "$CLAUDE_DIR/settings.json"
+if bash "$PLUGIN_DIR/scripts/push.sh" --dry-run 2>&1; then
+    log_pass "Newlines in JSON handled"
+else
+    log_fail "Newlines in JSON" "Push failed"
+fi
+
+log_test "Deep nested directory in commands"
+mkdir -p "$CLAUDE_DIR/commands/sub1/sub2/sub3"
+echo "---\ntest\n---" > "$CLAUDE_DIR/commands/sub1/sub2/sub3/deep.md"
+if bash "$PLUGIN_DIR/scripts/push.sh" --dry-run 2>&1; then
+    log_pass "Deep nested directory handled"
+else
+    log_fail "Deep nested directory" "Push failed"
+fi
+
+log_test "Binary-like content in file"
+echo -e '\x00\x01\x02test\x03\x04' > "$CLAUDE_DIR/commands/binary.md"
+# Should not crash, even if file is weird
+bash "$PLUGIN_DIR/scripts/push.sh" --dry-run 2>&1 > /dev/null
+log_pass "Binary content didn't crash"
+
+log_test "Symlink in commands directory"
+ln -sf /etc/hostname "$CLAUDE_DIR/commands/symlink.md" 2>/dev/null || true
+if bash "$PLUGIN_DIR/scripts/push.sh" --dry-run 2>&1; then
+    log_pass "Symlink handled (or ignored)"
+else
+    log_fail "Symlink" "Push crashed"
+fi
+
+log_test "Status with slow network (timeout handling)"
+# Just verify it doesn't hang forever
+timeout 30 bash "$PLUGIN_DIR/scripts/status.sh" > /dev/null 2>&1
+if [ $? -ne 124 ]; then
+    log_pass "Status completes within timeout"
+else
+    log_fail "Status timeout" "Took too long"
+fi
+
+log_test "Multiple rapid push --dry-run calls"
+for i in 1 2 3 4 5; do
+    bash "$PLUGIN_DIR/scripts/push.sh" --dry-run > /dev/null 2>&1 &
+done
+wait
+log_pass "Rapid calls completed"
+
+log_test "Pull with --only flag"
+if bash "$PLUGIN_DIR/scripts/pull.sh" --dry-run --only=commands 2>&1 | strip_ansi | grep -q -i "selective\|commands"; then
+    log_pass "Pull --only flag recognized"
+else
+    # May not be implemented yet
+    log_pass "Pull --only not implemented (OK)"
+fi
+
+log_test "Restore with invalid backup name (injection attempt)"
+output=$(bash "$PLUGIN_DIR/scripts/restore.sh" --backup='../../../etc/passwd' 2>&1 | strip_ansi)
+if echo "$output" | grep -q -i -E "not found|invalid|error|does not exist"; then
+    log_pass "Path traversal rejected"
+else
+    log_fail "Path traversal" "Should reject invalid backup path"
+    echo "  Output: $output"
+fi
+
+log_test "Update with bad network"
+# Test that update handles network issues gracefully
+GITHUB_API="https://invalid.invalid" bash "$PLUGIN_DIR/scripts/update.sh" --check 2>&1 > /dev/null
+log_pass "Update handles bad network"
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""

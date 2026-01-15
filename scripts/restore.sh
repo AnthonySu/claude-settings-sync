@@ -13,9 +13,44 @@ for arg in "$@"; do
     case $arg in
         --list) LIST_ONLY=true ;;
         --help|-h) SHOW_HELP=true ;;
+        --backup=*) BACKUP_NAME="${arg#*=}" ;;
         backup_*) BACKUP_NAME="$arg" ;;
     esac
 done
+
+# Validate backup name (prevent path traversal)
+if [ -n "$BACKUP_NAME" ]; then
+    # Reject path traversal attempts
+    if [[ "$BACKUP_NAME" == *".."* ]]; then
+        echo ""
+        echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║${NC}${BOLD}            Claude Settings Sync - Restore                  ${NC}${CYAN}║${NC}"
+        echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        log_error "Invalid backup name: path traversal not allowed"
+        exit 1
+    fi
+    # Reject absolute paths
+    if [[ "$BACKUP_NAME" == /* ]]; then
+        echo ""
+        echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║${NC}${BOLD}            Claude Settings Sync - Restore                  ${NC}${CYAN}║${NC}"
+        echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        log_error "Invalid backup name: absolute paths not allowed"
+        exit 1
+    fi
+    # Reject names with slashes (subdirectories)
+    if [[ "$BACKUP_NAME" == *"/"* ]]; then
+        echo ""
+        echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║${NC}${BOLD}            Claude Settings Sync - Restore                  ${NC}${CYAN}║${NC}"
+        echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        log_error "Invalid backup name: must be a simple directory name"
+        exit 1
+    fi
+fi
 
 # Show help
 if [ "$SHOW_HELP" = true ]; then
