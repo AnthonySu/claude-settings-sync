@@ -19,6 +19,14 @@ if ! config_exists; then
     exit 1
 fi
 
+# Check config is valid JSON
+if ! config_is_valid; then
+    log_error "Configuration file is corrupted or invalid."
+    echo ""
+    echo "Run /claude-settings-sync:setup to reconfigure."
+    exit 1
+fi
+
 # === Configuration ===
 echo "┌─ Configuration ─────────────────────────────────────────────┐"
 

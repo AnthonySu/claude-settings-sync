@@ -9,11 +9,15 @@ source "$SCRIPT_DIR/utils.sh"
 FORCE=false
 DRY_RUN=false
 ONLY_ITEMS=()
+ONLY_SPECIFIED=false
 for arg in "$@"; do
     case $arg in
         --force) FORCE=true ;;
         --dry-run) DRY_RUN=true ;;
-        --only=*) IFS=',' read -ra ONLY_ITEMS <<< "${arg#*=}" ;;
+        --only=*)
+            ONLY_SPECIFIED=true
+            IFS=',' read -ra ONLY_ITEMS <<< "${arg#*=}"
+            ;;
     esac
 done
 
@@ -35,6 +39,12 @@ if [ -z "$gist_id" ]; then
     exit 1
 fi
 
+token=$(get_config_value "github_token")
+if [ -z "$token" ]; then
+    log_error "GitHub token not found. Run /claude-settings-sync:setup first."
+    exit 1
+fi
+
 # Check dependencies
 if ! check_dependencies; then
     exit 1
@@ -45,7 +55,7 @@ TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
 # Validate --only items if specified
-if [ ${#ONLY_ITEMS[@]} -gt 0 ]; then
+if [ "$ONLY_SPECIFIED" = true ]; then
     if ! validate_only_items "${ONLY_ITEMS[@]}"; then
         exit 1
     fi
@@ -70,12 +80,12 @@ for item in "${BUNDLE_ITEMS[@]}"; do
                 count=$(ls -1 "$src" 2>/dev/null | wc -l | tr -d ' ')
                 size=$(du -sh "$src" 2>/dev/null | cut -f1)
                 log_success "  $item/ ($count items, $size)"
-                ((item_count++))
+                item_count=$((item_count + 1))
             fi
         else
             size=$(du -h "$src" 2>/dev/null | cut -f1)
             log_success "  $item ($size)"
-            ((item_count++))
+            item_count=$((item_count + 1))
         fi
     else
         echo -e "  ${YELLOW}$item (not found)${NC}"
@@ -89,7 +99,7 @@ if should_sync_item "skills" "${ONLY_ITEMS[@]}"; then
         skill_count=$(ls -1d "$CLAUDE_DIR/skills"/*/ 2>/dev/null | wc -l | tr -d ' ')
         skills_size=$(du -sh "$CLAUDE_DIR/skills" 2>/dev/null | cut -f1)
         log_success "  skills/ ($skill_count skills, manifest only - full: $skills_size)"
-        ((item_count++))
+        item_count=$((item_count + 1))
     fi
 else
     echo -e "  ${YELLOW}skills (skipped - not in --only)${NC}"

@@ -8,12 +8,29 @@ source "$SCRIPT_DIR/utils.sh"
 # Parse arguments
 BACKUP_NAME=""
 LIST_ONLY=false
+SHOW_HELP=false
 for arg in "$@"; do
     case $arg in
         --list) LIST_ONLY=true ;;
+        --help|-h) SHOW_HELP=true ;;
         backup_*) BACKUP_NAME="$arg" ;;
     esac
 done
+
+# Show help
+if [ "$SHOW_HELP" = true ]; then
+    echo "Usage: restore.sh [OPTIONS] [BACKUP_NAME]"
+    echo ""
+    echo "Restore Claude Code settings from a local backup."
+    echo ""
+    echo "Options:"
+    echo "  --list    List all available backups"
+    echo "  --help    Show this help message"
+    echo ""
+    echo "If no BACKUP_NAME is specified, shows interactive selection."
+    echo ""
+    exit 0
+fi
 
 echo ""
 echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
@@ -23,16 +40,29 @@ echo ""
 
 # Check if backup directory exists
 if [ ! -d "$BACKUP_DIR" ]; then
-    log_error "No backup directory found at $BACKUP_DIR"
-    exit 1
+    if [ "$LIST_ONLY" = true ]; then
+        log_info "No backups found (backup directory does not exist)"
+        log_info "Backups are created automatically before push and pull operations."
+        exit 0
+    else
+        log_error "No backup directory found at $BACKUP_DIR"
+        log_info "Backups are created automatically before push and pull operations."
+        exit 1
+    fi
 fi
 
 # List available backups
 backups=($(ls -1d "$BACKUP_DIR"/backup_* 2>/dev/null | sort -r))
 
 if [ ${#backups[@]} -eq 0 ]; then
-    log_error "No backups found"
-    exit 1
+    if [ "$LIST_ONLY" = true ]; then
+        log_info "No backups found"
+        log_info "Backups are created automatically before push and pull operations."
+        exit 0
+    else
+        log_error "No backups found"
+        exit 1
+    fi
 fi
 
 # List mode

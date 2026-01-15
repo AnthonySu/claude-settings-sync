@@ -45,11 +45,28 @@ ensure_config_dir() {
 }
 
 config_exists() {
-    [ -f "$CONFIG_FILE" ]
+    [ -f "$CONFIG_FILE" ] && [ -s "$CONFIG_FILE" ]
+}
+
+config_is_valid() {
+    if ! config_exists; then
+        return 1
+    fi
+    # Check if file has actual content (not just whitespace)
+    local content
+    content=$(tr -d '[:space:]' < "$CONFIG_FILE")
+    if [ -z "$content" ]; then
+        return 1
+    fi
+    # Check if it's valid JSON with at least an object
+    if ! jq -e 'type == "object"' "$CONFIG_FILE" > /dev/null 2>&1; then
+        return 1
+    fi
+    return 0
 }
 
 read_config() {
-    if config_exists; then
+    if config_exists && config_is_valid; then
         cat "$CONFIG_FILE"
     else
         echo "{}"
@@ -58,7 +75,11 @@ read_config() {
 
 get_config_value() {
     local key="$1"
-    read_config | jq -r ".$key // empty"
+    if ! config_is_valid; then
+        echo ""
+        return
+    fi
+    jq -r ".$key // empty" "$CONFIG_FILE" 2>/dev/null || echo ""
 }
 
 set_config_value() {
@@ -427,7 +448,7 @@ show_skills_install_guidance() {
         # Check if skill is installed locally
         if [ -d "$CLAUDE_DIR/skills/$dir_name" ]; then
             echo -e "  ${GREEN}✓${NC} $name"
-            ((installed_count++))
+            installed_count=$((installed_count + 1))
         else
             echo -e "  ${YELLOW}○${NC} $name ${YELLOW}(not installed)${NC}"
             if [ -n "$description" ]; then
@@ -436,7 +457,7 @@ show_skills_install_guidance() {
             if [ "$source" = "marketplace" ] && [ -n "$owner" ]; then
                 echo -e "      ${CYAN}Source: $owner (marketplace)${NC}"
             fi
-            ((missing_count++))
+            missing_count=$((missing_count + 1))
         fi
     done < <(jq -c '.skills[]' "$manifest_file")
 
@@ -792,11 +813,16 @@ VALID_SYNC_ITEMS=("settings.json" "CLAUDE.md" "agents" "commands" "skills")
 # Validate --only items
 validate_only_items() {
     local items=("$@")
+    local valid_count=0
     for item in "${items[@]}"; do
+        # Skip empty items (from trailing/leading commas)
+        [ -z "$item" ] && continue
+
         local found=false
         for valid in "${VALID_SYNC_ITEMS[@]}"; do
             if [ "$item" = "$valid" ]; then
                 found=true
+                valid_count=$((valid_count + 1))
                 break
             fi
         done
@@ -806,6 +832,13 @@ validate_only_items() {
             return 1
         fi
     done
+
+    # Ensure at least one valid item
+    if [ $valid_count -eq 0 ]; then
+        log_error "No valid items specified in --only"
+        log_info "Valid items: ${VALID_SYNC_ITEMS[*]}"
+        return 1
+    fi
     return 0
 }
 

@@ -10,12 +10,16 @@ FORCE=false
 DRY_RUN=false
 SHOW_DIFF=false
 ONLY_ITEMS=()
+ONLY_SPECIFIED=false
 for arg in "$@"; do
     case $arg in
         --force) FORCE=true ;;
         --dry-run) DRY_RUN=true ;;
         --diff) SHOW_DIFF=true ;;
-        --only=*) IFS=',' read -ra ONLY_ITEMS <<< "${arg#*=}" ;;
+        --only=*)
+            ONLY_SPECIFIED=true
+            IFS=',' read -ra ONLY_ITEMS <<< "${arg#*=}"
+            ;;
     esac
 done
 
@@ -47,7 +51,7 @@ TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
 # Validate --only items if specified
-if [ ${#ONLY_ITEMS[@]} -gt 0 ]; then
+if [ "$ONLY_SPECIFIED" = true ]; then
     if ! validate_only_items "${ONLY_ITEMS[@]}"; then
         exit 1
     fi
@@ -110,6 +114,11 @@ if [ -n "$local_modified" ] && [ -n "$last_sync" ]; then
         echo ""
         log_warn "You have local changes that will be overwritten."
         if [ "$FORCE" != true ] && [ "$SHOW_DIFF" != true ]; then
+            # Non-interactive mode - require --force or --diff
+            if [ ! -t 0 ]; then
+                log_error "Local changes detected. Use --force to override or --diff to preview."
+                exit 1
+            fi
             read -p "Pull anyway? Use --diff to preview changes. (y/N): " confirm
             if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
                 log_info "Pull cancelled. Consider pushing first to save local changes."
@@ -183,6 +192,12 @@ if [ "$SHOW_DIFF" = true ]; then
         exit 0
     fi
 
+    # In non-interactive mode (no tty), just show the diff and exit
+    if [ ! -t 0 ]; then
+        log_info "Non-interactive mode. Run without --diff to apply changes."
+        exit 0
+    fi
+
     read -p "Apply these changes? (y/N): " confirm
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
         log_info "Pull cancelled."
@@ -199,6 +214,11 @@ fi
 
 # Confirmation
 if [ "$FORCE" != true ]; then
+    # Non-interactive mode - require --force
+    if [ ! -t 0 ]; then
+        log_error "Non-interactive mode. Use --force to pull without confirmation."
+        exit 1
+    fi
     log_warn "This will overwrite your local settings!"
     read -p "Continue? (y/N): " confirm
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
