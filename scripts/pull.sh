@@ -113,8 +113,8 @@ if [ -n "$local_modified" ] && [ -n "$last_sync" ]; then
         echo "  Last sync: $last_sync"
         echo ""
         log_warn "You have local changes that will be overwritten."
-        if [ "$FORCE" != true ] && [ "$SHOW_DIFF" != true ]; then
-            # Non-interactive mode - require --force or --diff
+        if [ "$FORCE" != true ] && [ "$SHOW_DIFF" != true ] && [ "$DRY_RUN" != true ]; then
+            # Non-interactive mode - require --force or --diff or --dry-run
             if [ ! -t 0 ]; then
                 log_error "Local changes detected. Use --force to override or --diff to preview."
                 exit 1
