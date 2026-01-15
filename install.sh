@@ -26,7 +26,7 @@ SETTINGS_FILE="$CLAUDE_DIR/settings.json"
 REPO_OWNER="AnthonySu"
 PLUGIN_NAME="claude-settings-sync"
 TARBALL_URL="https://github.com/$REPO_OWNER/$PLUGIN_NAME/archive/refs/heads/main.tar.gz"
-PLUGIN_VERSION="2.2.0"
+PLUGIN_VERSION="1.2.0"
 
 log_info() { echo -e "${CYAN}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}✓${NC} $1"; }

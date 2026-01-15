@@ -5,9 +5,22 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils.sh"
 
+PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Get plugin version
+get_plugin_version() {
+    if [ -f "$PLUGIN_DIR/VERSION" ]; then
+        cat "$PLUGIN_DIR/VERSION" | tr -d '[:space:]'
+    else
+        echo "unknown"
+    fi
+}
+
+PLUGIN_VERSION=$(get_plugin_version)
+
 echo ""
 echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC}${BOLD}             Claude Settings Sync - Status                  ${NC}${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}${BOLD}         Claude Settings Sync - Status (v$PLUGIN_VERSION)           ${NC}${CYAN}║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -261,5 +274,6 @@ echo ""
 echo "Quick actions:"
 echo "  /claude-settings-sync:push   - Upload local settings to Gist"
 echo "  /claude-settings-sync:pull   - Download settings from Gist"
+echo "  /claude-settings-sync:update - Check for plugin updates"
 echo "  /claude-settings-sync:setup  - Reconfigure sync"
 echo ""
